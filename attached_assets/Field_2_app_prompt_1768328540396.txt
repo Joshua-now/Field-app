@@ -1,0 +1,514 @@
+
+
+
+
+   # Contractor Field Tech Management System - Replit Build Prompt
+
+## Project Overview
+Build a complete contractor field tech management system with three integrated components:
+1. **Desktop Web Dashboard** (Office/Dispatch)
+2. **Mobile Field Tech App** (iOS/Android via React Native/Expo)
+3. **AI Integration Layer** (connects with Retell AI and GoHighLevel)
+
+---
+
+## REPLIT AGENT PROMPT
+
+```
+Build me a complete contractor field tech management system with the following components:
+
+SYSTEM ARCHITECTURE:
+- Backend: Node.js/Express API with PostgreSQL database
+- Desktop Dashboard: React web app (responsive, works on desktop browsers)
+- Mobile App: React Native with Expo for iOS and Android
+- File Storage: Cloud storage for photos/documents
+- Real-time sync: WebSocket connections for live updates
+
+CORE FEATURES:
+
+1. DESKTOP DASHBOARD (Office/Dispatch Interface):
+
+User Management:
+- Office staff login/authentication
+- Role-based access (admin, dispatcher, viewer)
+- Multi-user support
+
+Job Scheduling & Management:
+- Calendar view (day/week/month)
+- Drag-and-drop job scheduling
+- Assign jobs to specific technicians
+- Job details form:
+  * Customer name, phone, email, address
+  * Service type (HVAC repair, installation, maintenance, etc.)
+  * Priority level (urgent, normal, routine)
+  * Estimated duration
+  * Special instructions/notes
+  * Access codes/gate codes
+  * Customer history/previous jobs
+
+Tech Management:
+- Live tech location tracking (GPS dots on map)
+- Current job status for each tech
+- Tech availability schedule
+- Performance metrics (jobs completed, avg time, customer ratings)
+
+Job Monitoring:
+- Real-time status updates from field
+- Photo gallery view (all photos from all jobs, filterable)
+- Job timeline (scheduled → en route → arrived → in progress → completed)
+- Customer communication log
+
+Customer Database:
+- Search and filter customers
+- Customer history (all previous jobs)
+- Notes and tags
+- Contact preferences
+
+Reporting Dashboard:
+- Jobs completed today/week/month
+- Revenue tracking
+- Tech performance
+- No-show rate
+- Average completion time
+- Customer satisfaction scores
+
+2. MOBILE APP (Field Tech Interface):
+
+Authentication:
+- Simple tech login (pin or password)
+- Remember device
+
+Daily Schedule:
+- List view of today's jobs (time-sorted)
+- Swipe to view tomorrow's schedule
+- Color-coded by job type/priority
+- Estimated drive time to each job
+
+Job Details Screen:
+- Customer name, address (tap to open maps)
+- Phone number (tap to call)
+- Job description and special instructions
+- Customer notes/history
+- Parts needed list
+- Access codes prominently displayed
+
+Navigation:
+- "Start Navigation" button → opens Google/Apple Maps
+- Shows distance and ETA
+
+Status Updates:
+- Big, simple buttons:
+  * "On My Way" (sets en route status)
+  * "Arrived" (marks arrival time, triggers geofence check)
+  * "Start Job" (begins timer)
+  * "Complete Job" (ends timer, prompts for signature)
+  * "Customer No-Show" (triggers AI rescue call)
+  * "Need to Reschedule" (with reason dropdown)
+
+Camera Integration:
+- "Take Photos" button on job screen
+- Native camera access (full quality)
+- Before/During/After photo categorization
+- Add captions to photos
+- Photos instantly sync to cloud
+- Offline photo storage (uploads when connection returns)
+
+Time Tracking:
+- Automatic time logging (start → complete)
+- Break timer
+- Overtime alerts
+
+Job Completion:
+- Digital signature capture (customer signs on phone)
+- Job summary (time spent, parts used)
+- Customer satisfaction quick rating (1-5 stars)
+- Notes field for next visit
+
+Parts & Inventory:
+- Mark parts used from job
+- Request parts from warehouse
+- Low stock alerts
+
+Offline Mode:
+- Download today's jobs for offline access
+- Queue photo uploads when offline
+- Sync all changes when connection returns
+
+3. AI INTEGRATION LAYER:
+
+GoHighLevel Integration:
+- Webhook listener for new appointments
+- Auto-create jobs in system when AI receptionist books appointment
+- Push completed job data back to GoHighLevel
+- Sync customer information bidirectionally
+
+No-Show Rescue AI (Retell AI):
+- Trigger: Tech marks "Customer No-Show"
+- System sends webhook to Retell AI with:
+  * Customer name, phone
+  * Technician name
+  * Original appointment time
+  * Job description
+  * Available reschedule slots
+- AI Script: "Hi [Customer], this is [Company]. Our technician [Tech Name] is at your home right now for your scheduled [Service Type], but you're not there. Can we reschedule? I have availability [slots]."
+- Capture reschedule confirmation
+- Auto-update calendar with new appointment
+- SMS confirmation to customer and tech
+
+Automated Customer Updates:
+- SMS when tech is assigned (morning of job)
+- SMS when tech is en route (with ETA)
+- SMS when tech arrives
+- SMS when job is completed (with invoice link)
+- Follow-up request for review (24 hours later)
+
+TECHNICAL REQUIREMENTS:
+
+Database Schema (PostgreSQL):
+- users (office staff, admins)
+- technicians (field techs with credentials)
+- customers (contact info, history, preferences)
+- jobs (all job details, status, timestamps)
+- job_photos (linked to jobs, with URLs and metadata)
+- job_notes (timeline of events/communications)
+- schedule (tech availability, time-off)
+- parts_inventory (track parts used/needed)
+- performance_metrics (aggregated stats)
+
+API Endpoints:
+- Auth: /api/auth/login, /api/auth/logout
+- Jobs: /api/jobs (CRUD operations)
+- Schedule: /api/schedule (get, update)
+- Techs: /api/techs (status, location, availability)
+- Photos: /api/photos/upload, /api/photos/list
+- Customers: /api/customers (search, get, update)
+- Webhooks: /api/webhooks/gohighlevel, /api/webhooks/retell
+- Status: /api/jobs/:id/status (update job status)
+
+Real-time Features (WebSockets):
+- Tech location updates (every 30 seconds when on job)
+- Job status changes (broadcast to all connected office users)
+- New photo uploads (show in dashboard immediately)
+- Job assignments (notify tech instantly)
+
+Photo Storage:
+- Use cloud storage (S3, Cloudinary, or similar)
+- Generate thumbnails for gallery view
+- Original full-resolution available for download
+- Photos organized by job ID
+- Metadata: timestamp, GPS coordinates, tech who took photo
+
+Security:
+- JWT authentication
+- Role-based access control (RBAC)
+- Encrypted API communications (HTTPS)
+- Secure photo upload/access
+- Rate limiting on API endpoints
+- SQL injection prevention
+
+Mobile Specific:
+- Expo Camera for native camera access
+- Expo Location for GPS tracking
+- Expo Notifications for push alerts
+- AsyncStorage for offline data
+- NetInfo for connectivity detection
+- Expo ImagePicker for photo gallery access
+
+UI/UX Requirements:
+
+Desktop Dashboard:
+- Clean, modern interface (not cluttered)
+- Fast loading (under 2 seconds)
+- Responsive (works on tablets too)
+- Dark mode option
+- Keyboard shortcuts for common actions
+- Export reports to PDF/Excel
+
+Mobile App:
+- Large touch targets (thumb-friendly)
+- Minimal clicks to complete actions
+- Offline-first design
+- Low data usage
+- Battery efficient
+- Works in bright sunlight (high contrast)
+- Simple, contractor-friendly language (no tech jargon)
+
+DEPLOYMENT:
+- Deploy backend API on Replit
+- Deploy React dashboard on Replit or Netlify
+- Provide Expo build instructions for mobile app
+- Environment variables for API keys, database URL
+- Health check endpoints
+- Error logging (Sentry or similar)
+
+SAMPLE DATA:
+- Create 5 sample customers
+- Create 3 sample technicians
+- Create 10 sample jobs (various statuses)
+- Include realistic contractor data (HVAC, roofing, plumbing examples)
+
+DOCUMENTATION NEEDED:
+- API documentation (endpoints, parameters, responses)
+- Setup instructions (env variables, database setup)
+- Mobile app build guide (Expo)
+- Webhook integration guide (GoHighLevel, Retell AI)
+- User manual for office staff
+- Quick start guide for field techs
+
+PRIORITY BUILD ORDER:
+Phase 1: Backend API + Database + Auth
+Phase 2: Desktop dashboard (job list, create/edit jobs)
+Phase 3: Mobile app (view jobs, update status)
+Phase 4: Photo upload/display (mobile → cloud → desktop)
+Phase 5: Real-time updates (WebSockets)
+Phase 6: AI integrations (webhooks)
+Phase 7: Advanced features (GPS tracking, offline mode, reporting)
+
+Build this as a production-ready system that's robust, scalable, and easy to use for contractors who aren't tech-savvy.
+```
+
+---
+
+## IMPLEMENTATION NOTES
+
+### Starting the Build in Replit
+
+1. **Create New Repl:**
+   - Go to Replit.com
+   - Click "Create Repl"
+   - Choose "Node.js" as the template
+   - Name it: "contractor-field-management"
+
+2. **Paste the Prompt:**
+   - Open Replit AI/Agent
+   - Paste the entire prompt above
+   - Let Agent build the initial structure
+
+3. **Expected Build Time:**
+   - Phase 1-3: 2-4 hours (core functionality)
+   - Phase 4-5: 2-3 hours (photos and real-time)
+   - Phase 6-7: 3-5 hours (AI and advanced features)
+   - Total: 8-12 hours of Agent work (spread over days)
+
+### Key Configuration Needs
+
+**Environment Variables** (you'll need to set these):
+```
+DATABASE_URL=your_postgres_url
+JWT_SECRET=random_secret_key
+AWS_ACCESS_KEY=your_aws_key (or Cloudinary API key)
+AWS_SECRET_KEY=your_aws_secret
+GOHIGHLEVEL_WEBHOOK_SECRET=from_ghl
+RETELL_API_KEY=your_retell_key
+TWILIO_ACCOUNT_SID=for_sms (optional)
+TWILIO_AUTH_TOKEN=for_sms (optional)
+```
+
+### Testing Strategy
+
+**Desktop Dashboard:**
+1. Create office user account
+2. Add sample customers
+3. Schedule sample jobs
+4. Assign to techs
+5. Test photo gallery view
+
+**Mobile App:**
+1. Test on Expo Go app first (instant preview)
+2. Create tech account
+3. View scheduled jobs
+4. Test camera/photo upload
+5. Test status updates
+6. Verify offline mode
+
+**AI Integration:**
+1. Test GoHighLevel webhook (use RequestBin to see payload)
+2. Simulate no-show, verify Retell AI call triggers
+3. Test SMS notifications
+
+### Common Issues & Solutions
+
+**Camera Not Working:**
+- Ensure Expo Camera permissions in app.json
+- Test on actual device, not simulator
+- Check iOS/Android permission prompts
+
+**Photos Not Appearing:**
+- Verify cloud storage credentials
+- Check CORS settings for web dashboard
+- Ensure proper file upload size limits
+
+**Real-time Updates Slow:**
+- Switch to polling if WebSockets have issues
+- Optimize database queries
+- Add Redis caching layer
+
+**Mobile App Won't Build:**
+- Use Expo EAS Build service
+- Ensure all dependencies compatible
+- Check React Native version compatibility
+
+---
+
+## CUSTOMIZATION OPTIONS
+
+Once basic system is built, you can easily add:
+
+**Additional Features:**
+- Invoice generation (PDF)
+- Payment collection (Stripe/Square)
+- Equipment maintenance tracking
+- Safety checklist forms
+- Video recording (not just photos)
+- Team messaging/chat
+- Weather alerts for outdoor jobs
+- Fuel/mileage tracking
+
+**Industry Customizations:**
+- HVAC: Equipment model/serial tracking, refrigerant logs
+- Roofing: Measurement tools, material calculators, drone photo integration
+- Plumbing: Parts diagrams, code compliance checklists
+- Electrical: Circuit diagrams, load calculations
+
+**Branding:**
+- White-label for each contractor (their logo, colors)
+- Custom domain for each client
+- Contractor-specific job types/workflows
+
+---
+
+## PRICING MODEL FOR YOUR BUSINESS
+
+**How to Package This:**
+
+**Tier 1: AI Receptionist Only**
+- $997/month
+- Phone answering and booking only
+
+**Tier 2: AI + Field Management**
+- $1,497/month
+- Everything in Tier 1
+- Field tech app (up to 5 techs)
+- Basic reporting
+
+**Tier 3: Complete Automation**
+- $1,997/month
+- Everything in Tier 2
+- Unlimited techs
+- Advanced reporting
+- Custom integrations
+- Priority support
+
+**Add-ons:**
+- Additional techs: $49/month each (after 5)
+- Custom features: $500-2,000 one-time
+- Training sessions: $200/hour
+- White-label setup: $1,500 one-time
+
+---
+
+## SUCCESS METRICS
+
+Track these to prove ROI to contractors:
+
+**Efficiency Gains:**
+- Jobs completed per tech per day (before/after)
+- Average job duration (should decrease)
+- Drive time optimization (better routing)
+- No-show rate (should drop with AI rescue)
+
+**Revenue Impact:**
+- Faster invoice → payment time
+- More jobs completed = more revenue
+- Reduced missed appointments
+- Upsell opportunities captured
+
+**Customer Satisfaction:**
+- Rating scores (track over time)
+- Repeat customer rate
+- Referral rate
+- Review volume
+
+**Office Efficiency:**
+- Time spent on scheduling (should drop dramatically)
+- Missed calls (should be zero with AI receptionist)
+- Administrative overhead
+- Customer callbacks for updates
+
+---
+
+## SUPPORT & MAINTENANCE
+
+**What You'll Need to Maintain:**
+- Database backups (automated daily)
+- Server uptime monitoring
+- Bug fixes and updates
+- Feature requests from clients
+- Mobile app updates (iOS/Android stores)
+- API integrations (when GoHighLevel/Retell update)
+
+**Monthly Time Commitment:**
+- 5-10 hours for existing clients
+- 20-40 hours when onboarding new clients
+- More in first 3 months, then stabilizes
+
+---
+
+## COMPETITIVE ADVANTAGES
+
+**Why This Beats Existing Software:**
+
+1. **Integrated with AI Receptionist** (others don't have this)
+2. **Built for contractors by someone who understands the trades** (you)
+3. **Simple, not bloated** (ServiceTitan, Housecall Pro are overwhelming)
+4. **Actually works** (techs will use it because it's intuitive)
+5. **Reasonable pricing** (compared to $500-800/month for other solutions)
+6. **AI-powered automation** (no-show rescue, smart scheduling)
+7. **You provide support** (not some call center)
+
+---
+
+## NEXT STEPS
+
+1. **Create Replit account** (if you don't have one)
+2. **Start new project** with the prompt above
+3. **Let Agent build Phase 1-3** (core system)
+4. **Test with sample data**
+5. **Build mobile app** (Phase 4-5)
+6. **Add photo functionality** (critical feature)
+7. **Integrate AI webhooks** (Phase 6)
+8. **Test with friendly contractor** (real-world validation)
+9. **Refine based on feedback**
+10. **Launch to first paying clients**
+
+---
+
+## TIMELINE ESTIMATE
+
+**Week 1-2:** Replit build core system (desktop + mobile basics)
+**Week 3:** Add photo upload/display functionality
+**Week 4:** Real-time updates and offline mode
+**Week 5-6:** AI integrations (GoHighLevel, Retell, SMS)
+**Week 7-8:** Testing with beta contractor, bug fixes
+**Week 9-10:** Polish UI/UX, documentation, training materials
+**Week 11-12:** Launch to first 2-3 clients
+
+**Total: 3 months to production-ready system**
+
+With your experience and Replit's AI Agent helping, you could potentially compress this to 6-8 weeks if you're focused.
+
+---
+
+## FINAL THOUGHTS
+
+This system becomes the **central nervous system** for your contractor clients:
+
+**Lead comes in** → AI Receptionist answers → Books appointment → Creates job in system → Assigns to tech → Tech gets notification → Tech completes job → Photos uploaded → Customer gets updates → Invoice sent → Payment collected → Follow-up review request
+
+**That's a complete automated workflow** worth way more than $1,497/month to a busy contractor doing $2-5M/year in revenue.
+
+Your 50 years of trades experience means you'll build this RIGHT - focusing on what actually matters in the field, not what sounds good in a sales demo.
+
+The combination of your AI receptionist + this field management system = a complete business automation package that no competitor can match.
+
+Good luck with the build! This is going to be a game-changer for your contractor clients.

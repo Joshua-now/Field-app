@@ -1,0 +1,1107 @@
+
+
+
+   # Technical Specification: Contractor Field Tech Management System
+
+## Database Schema
+
+### Table: users (Office Staff)
+```sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  role VARCHAR(50) DEFAULT 'dispatcher', -- admin, dispatcher, viewer
+  phone VARCHAR(20),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  last_login TIMESTAMP
+);
+```
+
+### Table: technicians (Field Techs)
+```sql
+CREATE TABLE technicians (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  phone VARCHAR(20) NOT NULL,
+  employee_id VARCHAR(50),
+  specialties TEXT[], -- ['hvac', 'plumbing', 'electrical']
+  certifications TEXT[],
+  is_active BOOLEAN DEFAULT true,
+  current_location_lat DECIMAL(10, 8),
+  current_location_lng DECIMAL(11, 8),
+  last_location_update TIMESTAMP,
+  profile_photo_url TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Table: customers
+```sql
+CREATE TABLE customers (
+  id SERIAL PRIMARY KEY,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  email VARCHAR(255),
+  phone VARCHAR(20) NOT NULL,
+  address_street VARCHAR(255),
+  address_city VARCHAR(100),
+  address_state VARCHAR(50),
+  address_zip VARCHAR(10),
+  address_coordinates POINT, -- PostGIS for mapping
+  gate_code VARCHAR(50),
+  access_notes TEXT,
+  preferred_contact_method VARCHAR(20) DEFAULT 'phone', -- phone, email, sms
+  customer_since DATE,
+  total_jobs_completed INTEGER DEFAULT 0,
+  lifetime_value DECIMAL(10, 2) DEFAULT 0,
+  average_rating DECIMAL(3, 2),
+  tags TEXT[], -- ['vip', 'maintenance-plan', 'commercial']
+  notes TEXT,
+  gohighlevel_id VARCHAR(100), -- sync with GHL
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Table: jobs
+```sql
+CREATE TABLE jobs (
+  id SERIAL PRIMARY KEY,
+  job_number VARCHAR(50) UNIQUE NOT NULL, -- auto-generated: JOB-2025-0001
+  customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+  technician_id INTEGER REFERENCES technicians(id),
+  
+  -- Scheduling
+  scheduled_date DATE NOT NULL,
+  scheduled_time_start TIME NOT NULL,
+  scheduled_time_end TIME,
+  estimated_duration_minutes INTEGER DEFAULT 60,
+  
+  -- Job Details
+  service_type VARCHAR(100) NOT NULL, -- 'hvac_repair', 'hvac_install', 'maintenance', etc.
+  priority VARCHAR(20) DEFAULT 'normal', -- urgent, normal, routine
+  description TEXT,
+  special_instructions TEXT,
+  
+  -- Status Tracking
+  status VARCHAR(50) DEFAULT 'scheduled', -- scheduled, assigned, en_route, arrived, in_progress, completed, cancelled, no_show
+  status_updated_at TIMESTAMP,
+  
+  -- Timestamps
+  assigned_at TIMESTAMP,
+  en_route_at TIMESTAMP,
+  arrived_at TIMESTAMP,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  
+  -- Completion Details
+  actual_duration_minutes INTEGER,
+  work_performed TEXT,
+  parts_used JSONB, -- [{"part_id": 123, "name": "Filter", "quantity": 2, "cost": 45.00}]
+  total_cost DECIMAL(10, 2),
+  customer_signature_url TEXT,
+  customer_rating INTEGER CHECK (customer_rating >= 1 AND customer_rating <= 5),
+  customer_feedback TEXT,
+  
+  -- Follow-up
+  requires_followup BOOLEAN DEFAULT false,
+  followup_date DATE,
+  followup_reason TEXT,
+  
+  -- Integration
+  gohighlevel_appointment_id VARCHAR(100),
+  invoice_id VARCHAR(100),
+  payment_status VARCHAR(50) DEFAULT 'pending', -- pending, paid, partial
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_jobs_scheduled_date ON jobs(scheduled_date);
+CREATE INDEX idx_jobs_technician ON jobs(technician_id);
+CREATE INDEX idx_jobs_customer ON jobs(customer_id);
+CREATE INDEX idx_jobs_status ON jobs(status);
+```
+
+### Table: job_photos
+```sql
+CREATE TABLE job_photos (
+  id SERIAL PRIMARY KEY,
+  job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+  technician_id INTEGER REFERENCES technicians(id),
+  
+  photo_url TEXT NOT NULL, -- cloud storage URL
+  thumbnail_url TEXT,
+  
+  category VARCHAR(50) DEFAULT 'during', -- before, during, after, damage, completed
+  caption TEXT,
+  
+  -- Metadata
+  file_size_bytes INTEGER,
+  file_type VARCHAR(50), -- image/jpeg, image/png
+  width INTEGER,
+  height INTEGER,
+  
+  -- Location
+  gps_latitude DECIMAL(10, 8),
+  gps_longitude DECIMAL(11, 8),
+  
+  uploaded_at TIMESTAMP DEFAULT NOW(),
+  taken_at TIMESTAMP
+);
+
+CREATE INDEX idx_photos_job ON job_photos(job_id);
+CREATE INDEX idx_photos_category ON job_photos(category);
+```
+
+### Table: job_notes
+```sql
+CREATE TABLE job_notes (
+  id SERIAL PRIMARY KEY,
+  job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id), -- can be office user or tech
+  technician_id INTEGER REFERENCES technicians(id),
+  
+  note_type VARCHAR(50) DEFAULT 'general', -- general, status_change, customer_contact, issue, resolution
+  note_text TEXT NOT NULL,
+  is_internal BOOLEAN DEFAULT false, -- internal notes not shown to customer
+  
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_notes_job ON job_notes(job_id);
+```
+
+### Table: technician_schedule
+```sql
+CREATE TABLE technician_schedule (
+  id SERIAL PRIMARY KEY,
+  technician_id INTEGER REFERENCES technicians(id) ON DELETE CASCADE,
+  
+  schedule_date DATE NOT NULL,
+  is_available BOOLEAN DEFAULT true,
+  start_time TIME DEFAULT '08:00:00',
+  end_time TIME DEFAULT '17:00:00',
+  
+  unavailable_reason VARCHAR(100), -- 'time_off', 'sick', 'training'
+  notes TEXT,
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  
+  UNIQUE(technician_id, schedule_date)
+);
+```
+
+### Table: parts_inventory
+```sql
+CREATE TABLE parts_inventory (
+  id SERIAL PRIMARY KEY,
+  part_number VARCHAR(100) UNIQUE,
+  part_name VARCHAR(255) NOT NULL,
+  description TEXT,
+  category VARCHAR(100), -- 'hvac_parts', 'electrical', 'plumbing'
+  
+  quantity_on_hand INTEGER DEFAULT 0,
+  reorder_point INTEGER DEFAULT 10,
+  cost_per_unit DECIMAL(10, 2),
+  
+  supplier VARCHAR(255),
+  supplier_part_number VARCHAR(100),
+  
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Table: parts_usage
+```sql
+CREATE TABLE parts_usage (
+  id SERIAL PRIMARY KEY,
+  job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+  part_id INTEGER REFERENCES parts_inventory(id),
+  technician_id INTEGER REFERENCES technicians(id),
+  
+  quantity_used INTEGER NOT NULL,
+  cost_per_unit DECIMAL(10, 2),
+  total_cost DECIMAL(10, 2),
+  
+  used_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Table: ai_call_logs
+```sql
+CREATE TABLE ai_call_logs (
+  id SERIAL PRIMARY KEY,
+  job_id INTEGER REFERENCES jobs(id),
+  customer_id INTEGER REFERENCES customers(id),
+  
+  call_type VARCHAR(50), -- 'no_show_rescue', 'appointment_reminder', 'follow_up'
+  call_status VARCHAR(50), -- 'initiated', 'completed', 'failed', 'no_answer'
+  
+  retell_call_id VARCHAR(255),
+  call_duration_seconds INTEGER,
+  call_transcript TEXT,
+  call_summary TEXT,
+  
+  outcome VARCHAR(100), -- 'rescheduled', 'cancelled', 'no_answer', 'voicemail'
+  rescheduled_date DATE,
+  rescheduled_time TIME,
+  
+  initiated_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+```
+
+### Table: sms_logs
+```sql
+CREATE TABLE sms_logs (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER REFERENCES customers(id),
+  job_id INTEGER REFERENCES jobs(id),
+  
+  message_type VARCHAR(50), -- 'tech_assigned', 'en_route', 'arrived', 'completed', 'review_request'
+  message_body TEXT NOT NULL,
+  phone_number VARCHAR(20) NOT NULL,
+  
+  status VARCHAR(50) DEFAULT 'sent', -- sent, delivered, failed
+  twilio_message_id VARCHAR(255),
+  
+  sent_at TIMESTAMP DEFAULT NOW(),
+  delivered_at TIMESTAMP
+);
+```
+
+### Table: webhooks_log
+```sql
+CREATE TABLE webhooks_log (
+  id SERIAL PRIMARY KEY,
+  source VARCHAR(50), -- 'gohighlevel', 'retell', 'stripe'
+  event_type VARCHAR(100),
+  payload JSONB,
+  processed BOOLEAN DEFAULT false,
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## API Endpoints Documentation
+
+### Authentication
+
+**POST /api/auth/login**
+```json
+Request:
+{
+  "email": "dispatcher@company.com",
+  "password": "password123",
+  "user_type": "office" // or "tech"
+}
+
+Response:
+{
+  "token": "jwt_token_here",
+  "user": {
+    "id": 1,
+    "email": "dispatcher@company.com",
+    "first_name": "John",
+    "role": "dispatcher"
+  }
+}
+```
+
+**POST /api/auth/logout**
+```json
+Headers: { "Authorization": "Bearer jwt_token" }
+
+Response:
+{
+  "message": "Logged out successfully"
+}
+```
+
+### Jobs
+
+**GET /api/jobs**
+```json
+Query params: 
+  ?date=2025-01-15
+  &technician_id=5
+  &status=scheduled
+  &customer_id=10
+
+Response:
+{
+  "jobs": [
+    {
+      "id": 1,
+      "job_number": "JOB-2025-0001",
+      "customer": {
+        "id": 10,
+        "name": "John Smith",
+        "phone": "555-0123",
+        "address": "123 Main St"
+      },
+      "technician": {
+        "id": 5,
+        "name": "Mike Johnson"
+      },
+      "scheduled_date": "2025-01-15",
+      "scheduled_time_start": "09:00:00",
+      "service_type": "hvac_repair",
+      "priority": "urgent",
+      "status": "scheduled",
+      "description": "AC not cooling properly"
+    }
+  ],
+  "total": 15,
+  "page": 1,
+  "per_page": 20
+}
+```
+
+**POST /api/jobs**
+```json
+Request:
+{
+  "customer_id": 10,
+  "technician_id": 5,
+  "scheduled_date": "2025-01-15",
+  "scheduled_time_start": "09:00",
+  "service_type": "hvac_repair",
+  "priority": "urgent",
+  "description": "AC not cooling",
+  "special_instructions": "Dog in backyard, use front door"
+}
+
+Response:
+{
+  "job": {
+    "id": 25,
+    "job_number": "JOB-2025-0025",
+    "status": "scheduled",
+    "created_at": "2025-01-13T10:30:00Z"
+  }
+}
+```
+
+**PUT /api/jobs/:id**
+```json
+Request:
+{
+  "technician_id": 6,
+  "scheduled_date": "2025-01-16"
+}
+
+Response:
+{
+  "job": { /* updated job object */ }
+}
+```
+
+**DELETE /api/jobs/:id**
+```json
+Response:
+{
+  "message": "Job cancelled successfully"
+}
+```
+
+### Job Status Updates (Mobile)
+
+**POST /api/jobs/:id/status**
+```json
+Request:
+{
+  "status": "en_route",
+  "location": {
+    "latitude": 28.5383,
+    "longitude": -81.3792
+  }
+}
+
+Response:
+{
+  "job": {
+    "id": 1,
+    "status": "en_route",
+    "en_route_at": "2025-01-15T08:45:00Z"
+  }
+}
+
+// Available statuses:
+// - "assigned" (office assigns tech)
+// - "en_route" (tech heading to job)
+// - "arrived" (tech at location)
+// - "in_progress" (tech started work)
+// - "completed" (job done)
+// - "no_show" (customer not home - triggers AI call)
+// - "cancelled" (job cancelled)
+```
+
+### Photos
+
+**POST /api/photos/upload**
+```json
+Request (multipart/form-data):
+{
+  "job_id": 1,
+  "photo": [file],
+  "category": "before", // before, during, after
+  "caption": "Damaged evaporator coil",
+  "latitude": 28.5383,
+  "longitude": -81.3792
+}
+
+Response:
+{
+  "photo": {
+    "id": 100,
+    "photo_url": "https://storage.../photo-123.jpg",
+    "thumbnail_url": "https://storage.../thumb-123.jpg",
+    "uploaded_at": "2025-01-15T10:30:00Z"
+  }
+}
+```
+
+**GET /api/photos**
+```json
+Query: ?job_id=1&category=before
+
+Response:
+{
+  "photos": [
+    {
+      "id": 100,
+      "photo_url": "https://...",
+      "thumbnail_url": "https://...",
+      "category": "before",
+      "caption": "Damaged coil",
+      "uploaded_at": "2025-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+### Technicians
+
+**GET /api/technicians**
+```json
+Response:
+{
+  "technicians": [
+    {
+      "id": 5,
+      "name": "Mike Johnson",
+      "phone": "555-0100",
+      "specialties": ["hvac", "refrigeration"],
+      "is_active": true,
+      "current_location": {
+        "latitude": 28.5383,
+        "longitude": -81.3792,
+        "last_update": "2025-01-15T10:30:00Z"
+      },
+      "current_job": {
+        "job_id": 1,
+        "status": "in_progress",
+        "customer_name": "John Smith"
+      }
+    }
+  ]
+}
+```
+
+**POST /api/technicians/:id/location**
+```json
+Request:
+{
+  "latitude": 28.5383,
+  "longitude": -81.3792
+}
+
+Response:
+{
+  "message": "Location updated"
+}
+```
+
+### Customers
+
+**GET /api/customers/search**
+```json
+Query: ?q=john&phone=555
+
+Response:
+{
+  "customers": [
+    {
+      "id": 10,
+      "name": "John Smith",
+      "phone": "555-0123",
+      "email": "john@example.com",
+      "address": "123 Main St, Orlando, FL",
+      "total_jobs": 5,
+      "average_rating": 4.8
+    }
+  ]
+}
+```
+
+**POST /api/customers**
+```json
+Request:
+{
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "phone": "555-0199",
+  "email": "jane@example.com",
+  "address_street": "456 Oak Ave",
+  "address_city": "Orlando",
+  "address_state": "FL",
+  "address_zip": "32801"
+}
+
+Response:
+{
+  "customer": { /* customer object */ }
+}
+```
+
+### Webhooks (External Integrations)
+
+**POST /api/webhooks/gohighlevel**
+```json
+// Incoming from GoHighLevel when AI receptionist books appointment
+
+Request:
+{
+  "event": "appointment.created",
+  "appointment_id": "ghl_abc123",
+  "customer": {
+    "name": "John Smith",
+    "phone": "555-0123",
+    "email": "john@example.com"
+  },
+  "service_type": "hvac_maintenance",
+  "scheduled_date": "2025-01-20",
+  "scheduled_time": "10:00",
+  "notes": "Customer mentioned AC making noise"
+}
+
+Response:
+{
+  "job_id": 50,
+  "job_number": "JOB-2025-0050",
+  "message": "Job created successfully"
+}
+```
+
+**POST /api/webhooks/retell/no-show**
+```json
+// Outgoing to Retell AI when customer no-show
+
+Request to Retell AI:
+{
+  "customer_phone": "555-0123",
+  "customer_name": "John Smith",
+  "technician_name": "Mike Johnson",
+  "service_type": "HVAC Repair",
+  "original_time": "10:00 AM",
+  "available_slots": [
+    "2025-01-15 2:00 PM",
+    "2025-01-16 9:00 AM",
+    "2025-01-16 1:00 PM"
+  ],
+  "job_id": 1
+}
+```
+
+**POST /api/webhooks/retell/callback**
+```json
+// Incoming from Retell after call completes
+
+Request:
+{
+  "call_id": "retell_xyz789",
+  "job_id": 1,
+  "outcome": "rescheduled",
+  "new_date": "2025-01-16",
+  "new_time": "09:00",
+  "transcript": "Call transcript here...",
+  "duration": 45
+}
+
+Response:
+{
+  "message": "Job rescheduled successfully",
+  "job_id": 1
+}
+```
+
+### Reporting
+
+**GET /api/reports/daily**
+```json
+Query: ?date=2025-01-15
+
+Response:
+{
+  "date": "2025-01-15",
+  "jobs_scheduled": 12,
+  "jobs_completed": 10,
+  "jobs_in_progress": 2,
+  "no_shows": 1,
+  "average_completion_time_minutes": 85,
+  "revenue": 4500.00,
+  "technician_performance": [
+    {
+      "tech_id": 5,
+      "name": "Mike Johnson",
+      "jobs_completed": 5,
+      "average_rating": 4.8,
+      "total_hours": 7.5
+    }
+  ]
+}
+```
+
+---
+
+## WebSocket Events (Real-Time Updates)
+
+### Connection
+```javascript
+// Client connects
+socket.connect('wss://api.example.com/ws', {
+  auth: { token: 'jwt_token' }
+});
+```
+
+### Events
+
+**job:status_changed**
+```json
+{
+  "event": "job:status_changed",
+  "data": {
+    "job_id": 1,
+    "old_status": "en_route",
+    "new_status": "arrived",
+    "technician_id": 5,
+    "timestamp": "2025-01-15T09:05:00Z"
+  }
+}
+```
+
+**job:photo_uploaded**
+```json
+{
+  "event": "job:photo_uploaded",
+  "data": {
+    "job_id": 1,
+    "photo_id": 100,
+    "photo_url": "https://...",
+    "thumbnail_url": "https://...",
+    "category": "before",
+    "uploaded_by": 5
+  }
+}
+```
+
+**tech:location_updated**
+```json
+{
+  "event": "tech:location_updated",
+  "data": {
+    "technician_id": 5,
+    "latitude": 28.5383,
+    "longitude": -81.3792,
+    "timestamp": "2025-01-15T09:10:00Z"
+  }
+}
+```
+
+**job:assigned**
+```json
+{
+  "event": "job:assigned",
+  "data": {
+    "job_id": 1,
+    "technician_id": 5,
+    "scheduled_date": "2025-01-15",
+    "scheduled_time": "10:00"
+  }
+}
+```
+
+---
+
+## Mobile App State Management
+
+### Job List Screen State
+```javascript
+{
+  jobs: [
+    {
+      id: 1,
+      customer: { name: "John Smith", phone: "555-0123" },
+      address: "123 Main St",
+      scheduled_time: "09:00",
+      status: "scheduled",
+      service_type: "hvac_repair",
+      priority: "urgent"
+    }
+  ],
+  loading: false,
+  error: null,
+  lastSync: "2025-01-15T08:00:00Z",
+  isOffline: false
+}
+```
+
+### Job Detail Screen State
+```javascript
+{
+  job: {
+    id: 1,
+    customer: {
+      name: "John Smith",
+      phone: "555-0123",
+      address: "123 Main St",
+      gate_code: "1234",
+      notes: "Dog in backyard"
+    },
+    description: "AC not cooling properly",
+    special_instructions: "Use front door",
+    status: "en_route",
+    photos: []
+  },
+  photos: [],
+  uploadQueue: [], // offline photos waiting to upload
+  currentLocation: { lat: 28.5383, lng: -81.3792 }
+}
+```
+
+---
+
+## Workflow Diagrams
+
+### New Lead → Completed Job Flow
+
+```
+1. Customer calls contractor
+   ↓
+2. AI Receptionist (Retell AI) answers
+   ↓
+3. AI books appointment, sends to GoHighLevel
+   ↓
+4. GoHighLevel webhook → Your API
+   ↓
+5. System creates customer (if new) + job
+   ↓
+6. Office dispatcher assigns to tech
+   ↓
+7. Tech receives push notification
+   ↓
+8. Morning of job: SMS sent to customer
+   ↓
+9. Tech marks "En Route"
+   ↓
+10. SMS to customer: "Mike is on his way, ETA 15 min"
+    ↓
+11. Tech marks "Arrived"
+    ↓
+12. GPS geofence confirms location
+    
+    IF customer not home:
+    ↓
+13a. Tech marks "No Show"
+    ↓
+14a. Webhook triggers Retell AI
+    ↓
+15a. AI calls customer to reschedule
+    ↓
+16a. Job rescheduled automatically
+    
+    IF customer home:
+    ↓
+13b. Tech marks "In Progress"
+    ↓
+14b. Tech takes "Before" photos
+    ↓
+15b. Tech performs work
+    ↓
+16b. Tech takes "After" photos
+    ↓
+17b. Tech marks "Complete"
+    ↓
+18b. Customer signs on tech's phone
+    ↓
+19b. SMS to customer: "Job complete, invoice: [link]"
+    ↓
+20b. 24 hours later: AI calls for review
+```
+
+### Photo Upload Flow (Offline Handling)
+
+```
+1. Tech opens job
+   ↓
+2. Clicks "Take Photo"
+   ↓
+3. Native camera opens
+   ↓
+4. Photo captured
+   ↓
+5. Tech selects category (Before/After)
+   ↓
+6. Tech adds caption (optional)
+   
+   IF ONLINE:
+   ↓
+7a. Photo uploads to cloud storage immediately
+   ↓
+8a. Database record created
+   ↓
+9a. WebSocket broadcasts to desktop
+   ↓
+10a. Office sees photo in real-time
+   
+   IF OFFLINE:
+   ↓
+7b. Photo saved to device storage
+   ↓
+8b. Added to upload queue
+   ↓
+9b. Visual indicator: "3 photos pending upload"
+   ↓
+10b. When connection restored → auto-upload
+   ↓
+11b. Queue clears, desktop receives photos
+```
+
+### No-Show Rescue AI Call Flow
+
+```
+1. Tech arrives at job site
+   ↓
+2. Tech waits 5-10 minutes
+   ↓
+3. Customer not home, not answering door
+   ↓
+4. Tech clicks "Customer No-Show" button
+   ↓
+5. App prompts: "Are you sure? This will trigger a rescue call."
+   ↓
+6. Tech confirms
+   ↓
+7. API receives status update
+   ↓
+8. System sends webhook to Retell AI:
+   {
+     customer_phone: "555-0123",
+     customer_name: "John Smith",
+     tech_name: "Mike Johnson",
+     service: "HVAC Repair",
+     available_slots: [...]
+   }
+   ↓
+9. Retell AI initiates call
+   ↓
+10. AI Script: "Hi John, this is [Company]. Mike is at 
+    your home right now for your HVAC repair, but 
+    you're not there. Can we reschedule?"
+    
+    IF Customer answers and reschedules:
+    ↓
+11a. AI captures new date/time
+    ↓
+12a. Webhook back to your API
+    ↓
+13a. Job updated with new schedule
+    ↓
+14a. SMS to customer: "Confirmed for [new date/time]"
+    ↓
+15a. SMS to tech: "Rescheduled to [new date/time]"
+    ↓
+16a. Tech moves to next job
+    
+    IF No answer / Voicemail:
+    ↓
+11b. AI leaves voicemail
+    ↓
+12b. SMS sent to customer
+    ↓
+13b. Job marked for follow-up
+    ↓
+14b. Office dispatcher handles manually
+```
+
+---
+
+## Security Best Practices
+
+### Authentication
+- JWT tokens with 24-hour expiration
+- Refresh token mechanism
+- Password hashing with bcrypt (10+ rounds)
+- Rate limiting on login endpoint (5 attempts per 15 min)
+
+### API Security
+- HTTPS only (redirect HTTP → HTTPS)
+- CORS configured for specific domains
+- API rate limiting (100 requests per minute per user)
+- Input validation on all endpoints
+- SQL injection prevention (parameterized queries)
+- XSS protection (sanitize inputs)
+
+### Photo Storage
+- Signed URLs with expiration (30 min)
+- Access control (users can only access their jobs' photos)
+- Virus scanning on uploads
+- File type validation (jpg, png only)
+- Max file size (10MB)
+
+### Mobile App
+- Secure storage for tokens (Keychain/KeyStore)
+- Certificate pinning for API calls
+- Encrypted local database for offline data
+- Biometric auth option (FaceID, fingerprint)
+
+### Database
+- Encrypted at rest
+- Regular backups (daily)
+- Point-in-time recovery enabled
+- Read replicas for reporting
+- Connection pooling
+
+---
+
+## Performance Optimization
+
+### API Response Times
+- Target: < 200ms for most endpoints
+- Caching: Redis for frequently accessed data
+- Database indexes on all foreign keys
+- Pagination on list endpoints (default 20 items)
+
+### Photo Loading
+- Lazy loading (thumbnails first, full-res on click)
+- Progressive JPEG for faster loading
+- CDN for photo delivery
+- Image compression (80% quality JPEG)
+
+### Mobile App
+- Offline-first architecture
+- Local SQLite cache
+- Background sync
+- Batch API requests
+- Optimize bundle size (< 50MB)
+
+### Real-time Updates
+- WebSocket connection pooling
+- Broadcast only to relevant users
+- Throttle location updates (every 30 sec, not every second)
+
+---
+
+## Testing Strategy
+
+### Backend API Tests
+```javascript
+// Example Jest test
+describe('POST /api/jobs', () => {
+  it('creates a new job successfully', async () => {
+    const response = await request(app)
+      .post('/api/jobs')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        customer_id: 10,
+        scheduled_date: '2025-01-15',
+        scheduled_time_start: '09:00',
+        service_type: 'hvac_repair'
+      });
+    
+    expect(response.status).toBe(201);
+    expect(response.body.job.status).toBe('scheduled');
+  });
+  
+  it('validates required fields', async () => {
+    const response = await request(app)
+      .post('/api/jobs')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ customer_id: 10 }); // missing required fields
+    
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toBeDefined();
+  });
+});
+```
+
+### Mobile App Tests
+```javascript
+// React Native testing
+describe('Job Status Update', () => {
+  it('updates job status to en_route', async () => {
+    const { getByText } = render(<JobDetailScreen job={mockJob} />);
+    const button = getByText('On My Way');
+    
+    fireEvent.press(button);
+    
+    await waitFor(() => {
+      expect(mockUpdateStatus).toHaveBeenCalledWith('en_route');
+    });
+  });
+});
+```
+
+### Integration Tests
+- Test GoHighLevel webhook handling
+- Test Retell AI call triggering
+- Test photo upload → storage → retrieval
+- Test offline mode → sync when online
+
+---
+
+## Deployment Checklist
+
+### Pre-Launch
+- [ ] All environment variables configured
+- [ ] Database migrations run
+- [ ] SSL certificate installed
+- [ ] Domain configured (api.yourapp.com)
+- [ ] Monitoring setup (uptime, errors)
+- [ ] Backup system tested
+- [ ] Load testing completed
+- [ ] Security audit passed
+
+### Mobile App Stores
+- [ ] iOS App Store listing created
+- [ ] Android Play Store listing created
+- [ ] App icons (all sizes)
+- [ ] Screenshots (all devices)
+- [ ] Privacy policy URL
+- [ ] Terms of service URL
+- [ ] App Store review passed
+
+### Go-Live
+- [ ] Beta test with 2-3 contractors
+- [ ] Gather feedback, fix critical bugs
+- [ ] Train contractor office staff
+- [ ] Train field techs
+- [ ] Monitor first week closely
+- [ ] Have support plan ready
+
+---
+
+This technical specification provides the complete structure needed to build a production-ready contractor field management system. Use this alongside the main prompt document to guide Replit Agent through the build process.
