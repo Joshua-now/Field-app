@@ -124,3 +124,18 @@ The application is configured as a PWA for mobile installation:
 - **Service Worker**: `client/public/sw.js` provides offline caching
 - **Install**: Users can add to home screen on iOS/Android for app-like experience
 - **Offline Support**: Cached API responses available when offline
+
+## Mobile vs Desktop Experience
+
+### Mobile (Field Technicians)
+- Routes under `/tech/*` with bottom navigation
+- Optimized for touch: large buttons, simple workflows
+- Key features: Job list, status updates, photo capture, navigation/call customer
+- Auto-redirect: Mobile devices accessing `/` go to `/tech`
+- Components: `MobileLayout.tsx`, `TechJobs.tsx`, `TechJobDetail.tsx`
+
+### Desktop (Office/Dispatch Staff)
+- Routes at root level with sidebar navigation
+- Full dashboard with analytics, schedule board, customer management
+- Key features: Job creation, technician assignment, inventory, reporting
+- Components: `Layout.tsx`, `Dashboard.tsx`, `Schedule.tsx`, `Jobs.tsx`

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -16,6 +17,12 @@ import Technicians from "@/pages/Technicians";
 import Customers from "@/pages/Customers";
 import Inventory from "@/pages/Inventory";
 import NotFound from "@/pages/not-found";
+
+import TechJobs from "@/pages/tech/TechJobs";
+import TechJobDetail from "@/pages/tech/TechJobDetail";
+import TechProfile from "@/pages/tech/TechProfile";
+import TechMap from "@/pages/tech/TechMap";
+import TechPhotos from "@/pages/tech/TechPhotos";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -44,9 +51,56 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   );
 }
 
+function ProtectedMobileRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      window.location.href = "/api/login";
+    }
+  }, [user, isLoading]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  return <Component />;
+}
+
 function Router() {
+  const isMobile = useIsMobile();
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (isMobile && location === "/") {
+      setLocation("/tech");
+    }
+  }, [isMobile, location, setLocation]);
+
   return (
     <Switch>
+      <Route path="/tech">
+        {() => <ProtectedMobileRoute component={TechJobs} />}
+      </Route>
+      <Route path="/tech/job/:id">
+        {() => <ProtectedMobileRoute component={TechJobDetail} />}
+      </Route>
+      <Route path="/tech/map">
+        {() => <ProtectedMobileRoute component={TechMap} />}
+      </Route>
+      <Route path="/tech/photos">
+        {() => <ProtectedMobileRoute component={TechPhotos} />}
+      </Route>
+      <Route path="/tech/profile">
+        {() => <ProtectedMobileRoute component={TechProfile} />}
+      </Route>
+
       <Route path="/">
         {() => <ProtectedRoute component={Dashboard} />}
       </Route>
