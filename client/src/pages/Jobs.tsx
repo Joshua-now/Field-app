@@ -25,6 +25,7 @@ import { Plus, Search, Calendar as CalendarIcon, Filter, Clock, Briefcase, Users
 import { Link } from "wouter";
 import { useState } from "react";
 import { format } from "date-fns";
+import { TechnicianSuggestions } from "@/components/TechnicianSuggestions";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -189,12 +190,34 @@ export default function Jobs() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Service Type</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. HVAC Repair" {...field} data-testid="input-job-service-type" />
-                      </FormControl>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-job-service-type">
+                            <SelectValue placeholder="Select Service Type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="hvac_repair">HVAC Repair</SelectItem>
+                          <SelectItem value="hvac_maintenance">HVAC Maintenance</SelectItem>
+                          <SelectItem value="hvac_install">HVAC Installation</SelectItem>
+                          <SelectItem value="plumbing_repair">Plumbing Repair</SelectItem>
+                          <SelectItem value="plumbing_leak">Plumbing Leak</SelectItem>
+                          <SelectItem value="electrical_repair">Electrical Repair</SelectItem>
+                          <SelectItem value="electrical_install">Electrical Installation</SelectItem>
+                          <SelectItem value="general_maintenance">General Maintenance</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
+                />
+
+                <TechnicianSuggestions
+                  customerId={form.watch("customerId")}
+                  serviceType={form.watch("serviceType")}
+                  scheduledDate={form.watch("scheduledDate")}
+                  selectedId={form.watch("technicianId")}
+                  onSelect={(techId) => form.setValue("technicianId", techId)}
                 />
 
                 <FormField

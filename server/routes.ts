@@ -43,8 +43,21 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Phone number required" });
     }
     
-    const customers = await storage.getCustomers(phone);
-    const customer = customers.find(c => c.phone.replace(/\D/g, "").includes(phone.replace(/\D/g, "")));
+    // Normalize input phone to digits only
+    const normalizedInput = phone.replace(/\D/g, "");
+    
+    // Require at least 10 digits for a valid US phone lookup
+    if (normalizedInput.length < 10) {
+      return res.status(400).json({ message: "Please enter a complete phone number" });
+    }
+    
+    // Get all customers and find EXACT match on normalized phone
+    const customers = await storage.getCustomers();
+    const customer = customers.find(c => {
+      const normalizedStored = c.phone.replace(/\D/g, "");
+      // Exact match on last 10 digits (handles country code variations)
+      return normalizedInput.slice(-10) === normalizedStored.slice(-10);
+    });
     
     if (!customer) {
       return res.status(404).json({ message: "Customer not found" });
@@ -78,6 +91,102 @@ export async function registerRoutes(
       },
       jobs
     });
+  });
+
+  // --- Smart Dispatch: Get technician suggestions for a job ---
+  app.get("/api/dispatch/suggestions", async (req, res) => {
+    const { customerId, serviceType, scheduledDate } = req.query;
+    
+    if (!customerId || !serviceType || !scheduledDate) {
+      return res.status(400).json({ message: "customerId, serviceType, and scheduledDate required" });
+    }
+    
+    // Get customer location
+    const customer = await storage.getCustomer(Number(customerId));
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+    
+    // Get all active technicians
+    const technicians = await storage.getTechnicians();
+    const activeTechs = technicians.filter(t => t.isActive);
+    
+    // Get all jobs for the scheduled date to calculate workload
+    const dateJobs = await storage.getJobs({ scheduledDate: scheduledDate as string });
+    
+    // Calculate score for each technician
+    const suggestions = await Promise.all(activeTechs.map(async (tech) => {
+      let score = 100;
+      const reasons: string[] = [];
+      
+      // 1. Specialty match (+30 points)
+      const serviceCategory = (serviceType as string).split('_')[0]; // hvac, plumbing, electrical
+      if (tech.specialties?.includes(serviceCategory)) {
+        score += 30;
+        reasons.push(`Specialized in ${serviceCategory}`);
+      }
+      
+      // 2. Workload penalty (-10 per job that day)
+      const techJobs = dateJobs.filter(j => j.technicianId === tech.id && j.status !== "cancelled");
+      score -= techJobs.length * 10;
+      if (techJobs.length === 0) {
+        reasons.push("No jobs scheduled that day");
+      } else if (techJobs.length <= 2) {
+        reasons.push(`${techJobs.length} job(s) scheduled`);
+      } else {
+        reasons.push(`Heavy workload: ${techJobs.length} jobs`);
+      }
+      
+      // 3. Proximity bonus (if we have location data)
+      let distanceMiles: number | null = null;
+      if (customer.addressLat && customer.addressLng && tech.currentLocationLat && tech.currentLocationLng) {
+        const lat1 = parseFloat(customer.addressLat);
+        const lng1 = parseFloat(customer.addressLng);
+        const lat2 = parseFloat(tech.currentLocationLat);
+        const lng2 = parseFloat(tech.currentLocationLng);
+        
+        // Haversine formula for distance
+        const R = 3959; // Earth radius in miles
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLng/2) * Math.sin(dLng/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        distanceMiles = R * c;
+        
+        if (distanceMiles < 5) {
+          score += 20;
+          reasons.push(`Only ${distanceMiles.toFixed(1)} miles away`);
+        } else if (distanceMiles < 15) {
+          score += 10;
+          reasons.push(`${distanceMiles.toFixed(1)} miles away`);
+        } else {
+          reasons.push(`${distanceMiles.toFixed(1)} miles away`);
+        }
+      }
+      
+      // 4. Recent location update bonus (+5 if updated within last hour)
+      if (tech.lastLocationUpdate) {
+        const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        if (new Date(tech.lastLocationUpdate) > hourAgo) {
+          score += 5;
+        }
+      }
+      
+      return {
+        technician: sanitizeTechnician(tech),
+        score,
+        reasons,
+        distanceMiles,
+        jobsScheduled: techJobs.length
+      };
+    }));
+    
+    // Sort by score descending
+    suggestions.sort((a, b) => b.score - a.score);
+    
+    res.json(suggestions.slice(0, 5)); // Return top 5 suggestions
   });
 
   // --- Health Check ---
