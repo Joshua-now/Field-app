@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { InsertJob } from "@shared/schema";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 
 export function useJobs(filters?: { status?: string; technicianId?: number; date?: string }) {
   const queryKey = [api.jobs.list.path, filters];
