@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, MapPin, Phone, Mail, Calendar, Clock, User, Camera, ImageIcon } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Mail, Calendar, Clock, User, Camera, ImageIcon, DollarSign } from "lucide-react";
+import { InvoiceDialog } from "@/components/InvoiceDialog";
 import { format } from "date-fns";
 import { useState } from "react";
 
@@ -77,6 +78,13 @@ export default function JobDetail() {
             <Button onClick={() => handleStatusChange("completed")} variant="default" className="bg-emerald-600 hover:bg-emerald-700" data-testid="button-complete-job">
               Complete Job
             </Button>
+          )}
+          {job.status === "completed" && job.customer && (
+            <InvoiceDialog
+              jobId={job.id}
+              jobNumber={job.jobNumber}
+              customerName={`${job.customer.firstName} ${job.customer.lastName}`}
+            />
           )}
         </div>
       </div>

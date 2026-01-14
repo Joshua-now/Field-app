@@ -112,7 +112,7 @@ export async function registerRoutes(
     const activeTechs = technicians.filter(t => t.isActive);
     
     // Get all jobs for the scheduled date to calculate workload
-    const dateJobs = await storage.getJobs({ scheduledDate: scheduledDate as string });
+    const dateJobs = await storage.getJobs({ date: scheduledDate as string });
     
     // Calculate score for each technician
     const suggestions = await Promise.all(activeTechs.map(async (tech) => {
@@ -264,6 +264,125 @@ export async function registerRoutes(
         return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
+    }
+  });
+
+  // --- Invoice & Payments ---
+  app.post("/api/jobs/:id/invoice", async (req, res) => {
+    const invoiceSchema = z.object({
+      lineItems: z.array(z.object({
+        description: z.string().min(1),
+        amount: z.number().positive()
+      })).min(1),
+      sendEmail: z.boolean().optional().default(true)
+    });
+    
+    let input;
+    try {
+      input = invoiceSchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+    
+    const { stripeService } = await import('./stripeService');
+    const jobId = Number(req.params.id);
+    const job = await storage.getJob(jobId);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (!job.customer) return res.status(400).json({ message: "Job has no customer" });
+    
+    if (job.invoiceId) {
+      return res.status(409).json({ message: "Job already has an invoice" });
+    }
+    
+    const { lineItems, sendEmail } = input;
+    
+    try {
+      if (!job.customer.email) {
+        return res.status(400).json({ message: "Customer email required for invoicing" });
+      }
+      const customer = await stripeService.getOrCreateCustomer(
+        job.customer.email,
+        `${job.customer.firstName} ${job.customer.lastName}`,
+        job.customer.phone || undefined
+      );
+      
+      const invoice = await stripeService.createJobInvoice(
+        customer.id,
+        job.id,
+        job.jobNumber,
+        lineItems
+      );
+      
+      if (sendEmail) {
+        await stripeService.sendInvoice(invoice.id);
+      }
+      
+      await storage.updateJob(jobId, { 
+        invoiceId: invoice.id,
+        paymentStatus: 'invoiced' as any
+      });
+      
+      res.json({ 
+        invoiceId: invoice.id,
+        invoiceUrl: invoice.hosted_invoice_url,
+        status: invoice.status
+      });
+    } catch (err: any) {
+      console.error('Invoice creation error:', err);
+      res.status(500).json({ message: err.message || "Failed to create invoice" });
+    }
+  });
+
+  app.post("/api/jobs/:id/payment-link", async (req, res) => {
+    const { stripeService } = await import('./stripeService');
+    const jobId = Number(req.params.id);
+    const job = await storage.getJob(jobId);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (!job.customer) return res.status(400).json({ message: "Job has no customer" });
+    
+    const { amount, description } = req.body;
+    if (typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ message: "Valid amount required" });
+    }
+    
+    try {
+      if (!job.customer.email) {
+        return res.status(400).json({ message: "Customer email required for payment" });
+      }
+      const customer = await stripeService.getOrCreateCustomer(
+        job.customer.email,
+        `${job.customer.firstName} ${job.customer.lastName}`,
+        job.customer.phone || undefined
+      );
+      
+      const session = await stripeService.createQuickPaymentLink(
+        customer.id,
+        amount,
+        description || `Service for ${job.jobNumber}`,
+        job.id,
+        job.jobNumber
+      );
+      
+      res.json({ 
+        paymentUrl: session.url,
+        sessionId: session.id
+      });
+    } catch (err: any) {
+      console.error('Payment link error:', err);
+      res.status(500).json({ message: err.message || "Failed to create payment link" });
+    }
+  });
+
+  app.get("/api/stripe/publishable-key", async (req, res) => {
+    try {
+      const { getStripePublishableKey } = await import('./stripeClient');
+      const key = await getStripePublishableKey();
+      res.json({ publishableKey: key });
+    } catch (err) {
+      res.status(500).json({ message: "Stripe not configured" });
     }
   });
 

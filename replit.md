@@ -71,6 +71,13 @@ shared/           # Shared types, schemas, and route definitions
 - **OpenAI API**: Used for chat, image generation, and audio features
 - Required environment variables: `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL`
 
+### Payments
+- **Stripe**: Payment processing for job invoices
+- Integration via Replit's Stripe connector with automatic webhook management
+- Uses Stripe Invoices for job billing (not product catalog to avoid catalog pollution)
+- Key files: `server/stripeClient.ts`, `server/stripeService.ts`, `server/webhookHandlers.ts`
+- Invoice endpoints: `POST /api/jobs/:id/invoice`, `POST /api/jobs/:id/payment-link`
+
 ### File Storage
 - **Google Cloud Storage**: Object storage for file uploads (photos, documents)
 - Accessed via Replit's sidecar endpoint at `http://127.0.0.1:1106`
