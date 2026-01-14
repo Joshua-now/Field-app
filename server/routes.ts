@@ -9,6 +9,13 @@ import { registerChatRoutes } from "./replit_integrations/chat";
 import { registerImageRoutes } from "./replit_integrations/image";
 import { registerAudioRoutes } from "./replit_integrations/audio";
 
+// Helper to strip sensitive data from technician responses
+function sanitizeTechnician(tech: any) {
+  if (!tech) return tech;
+  const { passwordHash, ...safe } = tech;
+  return safe;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -23,25 +30,30 @@ export async function registerRoutes(
   registerImageRoutes(app);
   registerAudioRoutes(app);
 
+  // --- Health Check ---
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // --- API Routes ---
 
   // Technicians
   app.get(api.technicians.list.path, async (req, res) => {
     const techs = await storage.getTechnicians();
-    res.json(techs);
+    res.json(techs.map(sanitizeTechnician));
   });
 
   app.get(api.technicians.get.path, async (req, res) => {
     const tech = await storage.getTechnician(Number(req.params.id));
     if (!tech) return res.status(404).json({ message: "Technician not found" });
-    res.json(tech);
+    res.json(sanitizeTechnician(tech));
   });
 
   app.post(api.technicians.create.path, async (req, res) => {
     try {
       const input = api.technicians.create.input.parse(req.body);
       const tech = await storage.createTechnician(input);
-      res.status(201).json(tech);
+      res.status(201).json(sanitizeTechnician(tech));
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
@@ -55,7 +67,7 @@ export async function registerRoutes(
       const input = api.technicians.update.input.parse(req.body);
       const tech = await storage.updateTechnician(Number(req.params.id), input);
       if (!tech) return res.status(404).json({ message: "Technician not found" });
-      res.json(tech);
+      res.json(sanitizeTechnician(tech));
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
@@ -89,6 +101,25 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/customers/:id", async (req, res) => {
+    try {
+      const customer = await storage.updateCustomer(Number(req.params.id), req.body);
+      if (!customer) return res.status(404).json({ message: "Customer not found" });
+      res.json(customer);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.delete("/api/customers/:id", async (req, res) => {
+    const deleted = await storage.deleteCustomer(Number(req.params.id));
+    if (!deleted) return res.status(404).json({ message: "Customer not found" });
+    res.json({ success: true });
+  });
+
   // Jobs
   app.get(api.jobs.list.path, async (req, res) => {
     const filters = {
@@ -97,14 +128,22 @@ export async function registerRoutes(
       status: req.query.status as string,
       customerId: req.query.customerId ? Number(req.query.customerId) : undefined,
     };
-    const jobs = await storage.getJobs(filters);
-    res.json(jobs);
+    const jobsList = await storage.getJobs(filters);
+    // Sanitize technician data in responses
+    const sanitizedJobs = jobsList.map(job => ({
+      ...job,
+      technician: sanitizeTechnician(job.technician)
+    }));
+    res.json(sanitizedJobs);
   });
 
   app.get(api.jobs.get.path, async (req, res) => {
     const job = await storage.getJob(Number(req.params.id));
     if (!job) return res.status(404).json({ message: "Job not found" });
-    res.json(job);
+    res.json({
+      ...job,
+      technician: sanitizeTechnician(job.technician)
+    });
   });
 
   app.post(api.jobs.create.path, async (req, res) => {
@@ -132,6 +171,12 @@ export async function registerRoutes(
       }
       throw err;
     }
+  });
+
+  app.delete("/api/jobs/:id", async (req, res) => {
+    const deleted = await storage.deleteJob(Number(req.params.id));
+    if (!deleted) return res.status(404).json({ message: "Job not found" });
+    res.json({ success: true });
   });
   
   // Parts
@@ -173,6 +218,12 @@ export async function registerRoutes(
       }
       throw err;
     }
+  });
+
+  app.delete("/api/photos/:id", async (req, res) => {
+    const deleted = await storage.deleteJobPhoto(Number(req.params.id));
+    if (!deleted) return res.status(404).json({ message: "Photo not found" });
+    res.json({ success: true });
   });
 
   // Seed Data Function (called once if DB empty)

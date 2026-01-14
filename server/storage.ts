@@ -4,7 +4,7 @@ import {
   type Technician, type Customer, type Job, type JobPhoto, type JobNote, type TechnicianSchedule, type Part
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { eq, desc, and, or, ilike } from "drizzle-orm";
 import { authStorage, type IAuthStorage } from "./replit_integrations/auth/storage";
 
 export interface IStorage extends IAuthStorage {
@@ -19,12 +19,14 @@ export interface IStorage extends IAuthStorage {
   getCustomer(id: number): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer>;
+  deleteCustomer(id: number): Promise<boolean>;
 
   // Jobs
   getJobs(filters?: { date?: string; technicianId?: number; status?: string; customerId?: number }): Promise<(Job & { customer: Customer; technician: Technician | null })[]>;
   getJob(id: number): Promise<(Job & { customer: Customer; technician: Technician | null }) | undefined>;
   createJob(job: InsertJob): Promise<Job>;
   updateJob(id: number, job: Partial<InsertJob>): Promise<Job>;
+  deleteJob(id: number): Promise<boolean>;
   
   // Parts
   getParts(): Promise<Part[]>;
@@ -33,6 +35,7 @@ export interface IStorage extends IAuthStorage {
   // Job Photos
   getJobPhotos(jobId: number): Promise<JobPhoto[]>;
   createJobPhoto(photo: InsertJobPhoto): Promise<JobPhoto>;
+  deleteJobPhoto(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -65,10 +68,18 @@ export class DatabaseStorage implements IStorage {
 
   // Customers
   async getCustomers(search?: string): Promise<Customer[]> {
-    // Basic search implementation
-    let query = db.select().from(customers);
-    // If search needed, add where clause... skipped for brevity/simplicity in MVP
-    return await query;
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      return await db.select().from(customers).where(
+        or(
+          ilike(customers.firstName, searchTerm),
+          ilike(customers.lastName, searchTerm),
+          ilike(customers.email, searchTerm),
+          ilike(customers.phone, searchTerm)
+        )
+      );
+    }
+    return await db.select().from(customers);
   }
 
   async getCustomer(id: number): Promise<Customer | undefined> {
@@ -82,8 +93,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer> {
-    const [updated] = await db.update(customers).set(customer).where(eq(customers.id, id)).returning();
+    const [updated] = await db.update(customers).set({ ...customer, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
     return updated;
+  }
+
+  async deleteCustomer(id: number): Promise<boolean> {
+    const result = await db.delete(customers).where(eq(customers.id, id)).returning();
+    return result.length > 0;
   }
 
   // Jobs
@@ -124,8 +140,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateJob(id: number, job: Partial<InsertJob>): Promise<Job> {
-    const [updated] = await db.update(jobs).set(job).where(eq(jobs.id, id)).returning();
+    const updates: any = { ...job, updatedAt: new Date() };
+    
+    // Record status change timestamps
+    if (job.status) {
+      updates.statusUpdatedAt = new Date();
+      switch (job.status) {
+        case "assigned":
+          updates.assignedAt = new Date();
+          break;
+        case "en_route":
+          updates.enRouteAt = new Date();
+          break;
+        case "arrived":
+          updates.arrivedAt = new Date();
+          break;
+        case "in_progress":
+          updates.startedAt = new Date();
+          break;
+        case "completed":
+          updates.completedAt = new Date();
+          break;
+      }
+    }
+    
+    const [updated] = await db.update(jobs).set(updates).where(eq(jobs.id, id)).returning();
     return updated;
+  }
+
+  async deleteJob(id: number): Promise<boolean> {
+    // First delete related photos
+    await db.delete(jobPhotos).where(eq(jobPhotos.jobId, id));
+    // Then delete the job
+    const result = await db.delete(jobs).where(eq(jobs.id, id)).returning();
+    return result.length > 0;
   }
 
   // Parts
@@ -146,6 +194,11 @@ export class DatabaseStorage implements IStorage {
   async createJobPhoto(photo: InsertJobPhoto): Promise<JobPhoto> {
     const [newPhoto] = await db.insert(jobPhotos).values(photo).returning();
     return newPhoto;
+  }
+
+  async deleteJobPhoto(id: number): Promise<boolean> {
+    const result = await db.delete(jobPhotos).where(eq(jobPhotos.id, id)).returning();
+    return result.length > 0;
   }
 }
 
