@@ -9,11 +9,12 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Loader2, MapPin, Phone, Clock, Navigation, Camera, 
-  CheckCircle, ArrowRight, Play, AlertCircle
+  CheckCircle, ArrowRight, Play, AlertCircle, PenTool
 } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 import type { Job, Customer, Technician, JobPhoto } from "@shared/schema";
+import { SignatureCapture } from "@/components/SignatureCapture";
 
 type JobWithRelations = Job & { customer: Customer; technician: Technician | null };
 
@@ -34,6 +35,7 @@ export default function TechJobDetail() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [notes, setNotes] = useState("");
+  const [showSignature, setShowSignature] = useState(false);
 
   const { data: job, isLoading } = useQuery<JobWithRelations>({
     queryKey: ["/api/jobs", id],
@@ -45,12 +47,13 @@ export default function TechJobDetail() {
   });
 
   const updateStatus = useMutation({
-    mutationFn: async (newStatus: string) => {
-      return apiRequest("PUT", `/api/jobs/${id}`, { status: newStatus });
+    mutationFn: async (data: { status: string; customerSignatureUrl?: string; workPerformed?: string }) => {
+      return apiRequest("PUT", `/api/jobs/${id}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/jobs"] });
       toast({ title: "Status updated" });
+      setShowSignature(false);
     },
     onError: (error: any) => {
       toast({ 
@@ -60,6 +63,22 @@ export default function TechJobDetail() {
       });
     },
   });
+
+  const handleCompleteWithSignature = (signatureDataUrl: string) => {
+    updateStatus.mutate({
+      status: "completed",
+      customerSignatureUrl: signatureDataUrl,
+      workPerformed: notes || undefined
+    });
+  };
+
+  const handleNextStatus = () => {
+    if (nextStatus === "completed") {
+      setShowSignature(true);
+    } else if (nextStatus) {
+      updateStatus.mutate({ status: nextStatus });
+    }
+  };
 
   const getNextStatus = (current: string): string | null => {
     const idx = statusFlow.indexOf(current);
@@ -189,18 +208,28 @@ export default function TechJobDetail() {
           <Button 
             size="lg"
             className="w-full h-14 text-lg"
-            onClick={() => updateStatus.mutate(nextStatus)}
+            onClick={handleNextStatus}
             disabled={updateStatus.isPending}
             data-testid="button-next-status"
           >
             {updateStatus.isPending ? (
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            ) : nextStatus === "completed" ? (
+              <PenTool className="w-5 h-5 mr-2" />
             ) : NextIcon ? (
               <NextIcon className="w-5 h-5 mr-2" />
             ) : null}
-            {config.nextLabel}
+            {nextStatus === "completed" ? "Get Signature & Complete" : config.nextLabel}
             <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
+        )}
+
+        {showSignature && (
+          <SignatureCapture
+            onSave={handleCompleteWithSignature}
+            onCancel={() => setShowSignature(false)}
+            title="Customer Signature"
+          />
         )}
 
         {job.status === "completed" && (

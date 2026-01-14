@@ -36,6 +36,50 @@ export async function registerRoutes(
   // Apply rate limiting to all API routes
   app.use("/api", apiRateLimiter);
 
+  // --- Customer Portal (Public) ---
+  app.get("/api/customer-portal/lookup", async (req, res) => {
+    const phone = req.query.phone as string;
+    if (!phone) {
+      return res.status(400).json({ message: "Phone number required" });
+    }
+    
+    const customers = await storage.getCustomers(phone);
+    const customer = customers.find(c => c.phone.replace(/\D/g, "").includes(phone.replace(/\D/g, "")));
+    
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+    
+    const allJobs = await storage.getJobs({ customerId: customer.id });
+    const jobs = allJobs.map(j => ({
+      id: j.id,
+      jobNumber: j.jobNumber,
+      scheduledDate: j.scheduledDate,
+      scheduledTimeStart: j.scheduledTimeStart,
+      serviceType: j.serviceType,
+      status: j.status,
+      description: j.description,
+      workPerformed: j.workPerformed,
+      completedAt: j.completedAt,
+      technician: j.technician ? { firstName: j.technician.firstName, lastName: j.technician.lastName } : null
+    }));
+    
+    res.json({
+      customer: {
+        id: customer.id,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+        addressStreet: customer.addressStreet,
+        addressCity: customer.addressCity,
+        addressState: customer.addressState,
+        addressZip: customer.addressZip
+      },
+      jobs
+    });
+  });
+
   // --- Health Check ---
   app.get("/api/health", async (req, res) => {
     try {
