@@ -92,7 +92,7 @@ export default function Jobs() {
         
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="shadow-lg shadow-primary/25">
+            <Button className="shadow-lg shadow-primary/25" data-testid="button-new-job">
               <Plus className="w-4 h-4 mr-2" />
               New Job
             </Button>
@@ -211,7 +211,7 @@ export default function Jobs() {
                   )}
                 />
 
-                <Button type="submit" className="w-full" disabled={createJob.isPending}>
+                <Button type="submit" className="w-full" disabled={createJob.isPending} data-testid="button-create-job">
                   {createJob.isPending ? "Creating..." : "Create Job"}
                 </Button>
               </form>
@@ -229,6 +229,7 @@ export default function Jobs() {
             className="pl-9 bg-background"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-search-jobs"
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -249,7 +250,28 @@ export default function Jobs() {
       {/* Job List */}
       <div className="grid gap-4">
         {isLoading ? (
-          <div className="text-center py-12 text-muted-foreground">Loading jobs...</div>
+          <div className="space-y-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="border-border/50">
+                <CardContent className="p-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <div className="h-6 w-32 bg-muted animate-pulse rounded" />
+                        <div className="h-5 w-20 bg-muted animate-pulse rounded-full" />
+                      </div>
+                      <div className="h-5 w-40 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-64 bg-muted animate-pulse rounded" />
+                    </div>
+                    <div className="flex flex-col md:items-end gap-2">
+                      <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-20 bg-muted animate-pulse rounded" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         ) : filteredJobs?.length === 0 ? (
           <div className="text-center py-12 bg-card rounded-xl border border-dashed border-border">
             <Briefcase className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
@@ -259,17 +281,17 @@ export default function Jobs() {
         ) : (
           filteredJobs?.map((job) => (
             <Link key={job.id} href={`/jobs/${job.id}`}>
-              <Card className="hover:shadow-md transition-shadow cursor-pointer group border-border/50">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer group border-border/50" data-testid={`card-job-${job.id}`}>
                 <CardContent className="p-6">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-3">
-                        <span className="font-bold text-lg group-hover:text-primary transition-colors">
+                        <span className="font-bold text-lg group-hover:text-primary transition-colors" data-testid={`text-job-number-${job.id}`}>
                           {job.jobNumber}
                         </span>
                         <StatusBadge status={job.status || "scheduled"} />
                       </div>
-                      <p className="font-medium text-foreground">
+                      <p className="font-medium text-foreground" data-testid={`text-job-customer-${job.id}`}>
                         {job.customer.firstName} {job.customer.lastName}
                       </p>
                       <p className="text-sm text-muted-foreground line-clamp-1">
@@ -280,7 +302,7 @@ export default function Jobs() {
                     <div className="flex flex-col md:items-end gap-1 text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">
                         <CalendarIcon className="w-4 h-4" />
-                        <span>{format(new Date(job.scheduledDate), "EEE, MMM d, yyyy")}</span>
+                        <span data-testid={`text-job-date-${job.id}`}>{format(new Date(job.scheduledDate), "EEE, MMM d, yyyy")}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4" />
@@ -289,7 +311,7 @@ export default function Jobs() {
                       {job.technician && (
                         <div className="flex items-center gap-2 mt-1">
                           <Users className="w-4 h-4" />
-                          <span className="text-foreground font-medium">
+                          <span className="text-foreground font-medium" data-testid={`text-job-tech-${job.id}`}>
                             {job.technician.firstName} {job.technician.lastName}
                           </span>
                         </div>

@@ -109,7 +109,7 @@ export default function Dashboard() {
                 <div key={job.id} className="flex items-center justify-between border-b border-border/50 last:border-0 pb-4 last:pb-0">
                   <div className="space-y-1">
                     <Link href={`/jobs/${job.id}`}>
-                      <span className="text-sm font-semibold hover:underline cursor-pointer">
+                      <span className="text-sm font-semibold hover:underline cursor-pointer" data-testid={`link-job-${job.id}`}>
                         {job.jobNumber}
                       </span>
                     </Link>

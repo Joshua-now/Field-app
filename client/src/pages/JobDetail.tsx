@@ -19,8 +19,28 @@ export default function JobDetail() {
   const updateStatus = useUpdateJobStatus();
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
 
-  if (isLoading) return <div>Loading...</div>;
-  if (!job) return <div>Job not found</div>;
+  if (isLoading) {
+    return (
+      <div className="space-y-8">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-10 bg-muted animate-pulse rounded-full" />
+          <div className="space-y-2">
+            <div className="h-6 w-40 bg-muted animate-pulse rounded" />
+            <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+          </div>
+        </div>
+        <div className="grid gap-6 md:grid-cols-3">
+          <div className="md:col-span-2 space-y-6">
+            <Card><CardContent className="p-6"><div className="h-32 bg-muted animate-pulse rounded" /></CardContent></Card>
+          </div>
+          <div className="space-y-6">
+            <Card><CardContent className="p-6"><div className="h-40 bg-muted animate-pulse rounded" /></CardContent></Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (!job) return <div className="text-center py-12 text-muted-foreground">Job not found</div>;
 
   const handleStatusChange = (newStatus: string) => {
     updateStatus.mutate({ 
@@ -35,7 +55,7 @@ export default function JobDetail() {
     <div className="space-y-8 animate-in">
       <div className="flex items-center gap-4">
         <Link href="/jobs">
-          <Button variant="ghost" size="icon" className="rounded-full">
+          <Button variant="ghost" size="icon" className="rounded-full" data-testid="button-back-jobs">
             <ArrowLeft className="w-5 h-5" />
           </Button>
         </Link>
@@ -45,16 +65,16 @@ export default function JobDetail() {
         </div>
         <div className="ml-auto flex gap-2">
           {job.status === "scheduled" && (
-            <Button onClick={() => handleStatusChange("en_route")}>Start Travel</Button>
+            <Button onClick={() => handleStatusChange("en_route")} data-testid="button-start-travel">Start Travel</Button>
           )}
           {job.status === "en_route" && (
-            <Button onClick={() => handleStatusChange("arrived")}>Arrived</Button>
+            <Button onClick={() => handleStatusChange("arrived")} data-testid="button-arrived">Arrived</Button>
           )}
           {job.status === "arrived" && (
-            <Button onClick={() => handleStatusChange("in_progress")}>Start Job</Button>
+            <Button onClick={() => handleStatusChange("in_progress")} data-testid="button-start-job">Start Job</Button>
           )}
           {job.status === "in_progress" && (
-            <Button onClick={() => handleStatusChange("completed")} variant="default" className="bg-emerald-600 hover:bg-emerald-700">
+            <Button onClick={() => handleStatusChange("completed")} variant="default" className="bg-emerald-600 hover:bg-emerald-700" data-testid="button-complete-job">
               Complete Job
             </Button>
           )}

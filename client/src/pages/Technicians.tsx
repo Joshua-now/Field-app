@@ -1,7 +1,8 @@
 import { useTechnicians, useCreateTechnician } from "@/hooks/use-technicians";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Phone, Award } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Phone, Award, UserX } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,8 +38,6 @@ export default function Technicians() {
     }
   };
 
-  if (isLoading) return <div>Loading...</div>;
-
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
@@ -48,7 +47,7 @@ export default function Technicians() {
         </div>
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button data-testid="button-add-technician">
               <Plus className="w-4 h-4 mr-2" />
               Add Technician
             </Button>
@@ -105,7 +104,7 @@ export default function Technicians() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={createTech.isPending}>
+                <Button type="submit" className="w-full" disabled={createTech.isPending} data-testid="button-save-technician">
                   {createTech.isPending ? "Adding..." : "Add Technician"}
                 </Button>
               </form>
@@ -115,36 +114,62 @@ export default function Technicians() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {technicians?.map((tech) => (
-          <Card key={tech.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-lg">
-                  {tech.firstName[0]}{tech.lastName[0]}
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-bold text-lg">{tech.firstName} {tech.lastName}</h3>
-                  <div className="flex items-center text-sm text-muted-foreground mt-1 gap-2">
-                    <Phone className="w-3 h-3" />
-                    {tech.phone}
-                  </div>
-                  {tech.specialties && tech.specialties.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {tech.specialties.map((s: string, i: number) => (
-                        <span key={i} className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-md font-medium">
-                          {s}
-                        </span>
-                      ))}
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-6">
+                <div className="flex items-start gap-4">
+                  <Skeleton className="h-12 w-12 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-4 w-24" />
+                    <div className="flex gap-2 mt-3">
+                      <Skeleton className="h-6 w-16 rounded-md" />
+                      <Skeleton className="h-6 w-20 rounded-md" />
                     </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : technicians?.length === 0 ? (
+          <div className="col-span-full text-center py-12 bg-card rounded-xl border border-dashed border-border">
+            <UserX className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+            <h3 className="text-lg font-medium">No technicians yet</h3>
+            <p className="text-sm text-muted-foreground">Add your first field technician to get started.</p>
+          </div>
+        ) : (
+          technicians?.map((tech) => (
+            <Card key={tech.id} className="hover:shadow-md transition-shadow" data-testid={`card-technician-${tech.id}`}>
+              <CardContent className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-lg">
+                    {tech.firstName[0]}{tech.lastName[0]}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-lg" data-testid={`text-technician-name-${tech.id}`}>{tech.firstName} {tech.lastName}</h3>
+                    <div className="flex items-center text-sm text-muted-foreground mt-1 gap-2">
+                      <Phone className="w-3 h-3" />
+                      <span data-testid={`text-technician-phone-${tech.id}`}>{tech.phone}</span>
+                    </div>
+                    {tech.specialties && tech.specialties.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {tech.specialties.map((s: string, i: number) => (
+                          <span key={i} className="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded-md font-medium">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {tech.isActive && (
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-white ring-2 ring-emerald-100" title="Active" />
                   )}
                 </div>
-                {tech.isActive && (
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-white ring-2 ring-emerald-100" />
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

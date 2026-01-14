@@ -2,7 +2,8 @@ import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Search, MapPin, Phone, Mail } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Search, MapPin, Phone, Mail, UserX } from "lucide-react";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
@@ -45,7 +46,7 @@ export default function Customers() {
         </div>
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button data-testid="button-new-customer">
               <Plus className="w-4 h-4 mr-2" />
               New Customer
             </Button>
@@ -147,8 +148,8 @@ export default function Customers() {
                     )}
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={createCustomer.isPending}>
-                  Save Customer
+                <Button type="submit" className="w-full" disabled={createCustomer.isPending} data-testid="button-save-customer">
+                  {createCustomer.isPending ? "Saving..." : "Save Customer"}
                 </Button>
               </form>
             </Form>
@@ -163,47 +164,72 @@ export default function Customers() {
           className="pl-9"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          data-testid="input-search-customers"
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {isLoading ? (
-          <div>Loading...</div>
-        ) : customers?.map((customer) => (
-          <Card key={customer.id} className="hover:border-primary/50 transition-colors cursor-pointer group">
-            <CardContent className="p-6 space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-lg group-hover:text-primary transition-colors">
-                    {customer.firstName} {customer.lastName}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Customer since {customer.customerSince ? new Date(customer.customerSince).getFullYear() : 'N/A'}</p>
+          Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-6 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div className="space-y-2">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
                 </div>
-              </div>
-              
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4" />
-                  <span>{customer.phone}</span>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-4 w-36" />
+                  <Skeleton className="h-4 w-40" />
                 </div>
-                {customer.email && (
+              </CardContent>
+            </Card>
+          ))
+        ) : customers?.length === 0 ? (
+          <div className="col-span-full text-center py-12 bg-card rounded-xl border border-dashed border-border">
+            <UserX className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+            <h3 className="text-lg font-medium">No customers found</h3>
+            <p className="text-sm text-muted-foreground">Add your first customer to get started.</p>
+          </div>
+        ) : (
+          customers?.map((customer) => (
+            <Card key={customer.id} className="hover:border-primary/50 transition-colors cursor-pointer group" data-testid={`card-customer-${customer.id}`}>
+              <CardContent className="p-6 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-lg group-hover:text-primary transition-colors" data-testid={`text-customer-name-${customer.id}`}>
+                      {customer.firstName} {customer.lastName}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">Customer since {customer.customerSince ? new Date(customer.customerSince).getFullYear() : 'N/A'}</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4" />
-                    <span className="truncate">{customer.email}</span>
+                    <Phone className="w-4 h-4" />
+                    <span data-testid={`text-customer-phone-${customer.id}`}>{customer.phone}</span>
                   </div>
-                )}
-                {customer.addressStreet && (
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 mt-0.5" />
-                    <span className="flex-1">
-                      {customer.addressStreet}, {customer.addressCity}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                  {customer.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      <span className="truncate" data-testid={`text-customer-email-${customer.id}`}>{customer.email}</span>
+                    </div>
+                  )}
+                  {customer.addressStreet && (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="w-4 h-4 mt-0.5" />
+                      <span className="flex-1">
+                        {customer.addressStreet}, {customer.addressCity}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );
