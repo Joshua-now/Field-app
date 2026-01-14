@@ -116,3 +116,11 @@ shared/           # Shared types, schemas, and route definitions
 - Endpoint: `POST /api/admin/cleanup` (strict rate limited)
 - Removes orphaned photos and notes not linked to existing jobs
 - Returns count of cleaned records
+
+## Progressive Web App (PWA)
+
+The application is configured as a PWA for mobile installation:
+- **Manifest**: `client/public/manifest.json` defines app name, icons, and shortcuts
+- **Service Worker**: `client/public/sw.js` provides offline caching
+- **Install**: Users can add to home screen on iOS/Android for app-like experience
+- **Offline Support**: Cached API responses available when offline
