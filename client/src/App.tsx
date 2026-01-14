@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
 import Dashboard from "@/pages/Dashboard";
+import Schedule from "@/pages/Schedule";
 import Jobs from "@/pages/Jobs";
 import JobDetail from "@/pages/JobDetail";
 import Technicians from "@/pages/Technicians";
@@ -50,8 +51,7 @@ function Router() {
         {() => <ProtectedRoute component={Dashboard} />}
       </Route>
       <Route path="/schedule">
-        {/* Reuse Jobs page for now, but pre-filtered could be added */}
-        {() => <ProtectedRoute component={Jobs} />} 
+        {() => <ProtectedRoute component={Schedule} />}
       </Route>
       <Route path="/jobs">
         {() => <ProtectedRoute component={Jobs} />}
