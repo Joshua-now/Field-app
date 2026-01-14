@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { Briefcase, MapPin, User, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { appConfig } from "@/lib/config";
+import { OfflineIndicator, OfflineBadge } from "@/components/OfflineIndicator";
 
 interface MobileLayoutProps {
   children: React.ReactNode;
@@ -36,12 +37,15 @@ export function MobileLayout({ children, title, showBack, onBack }: MobileLayout
             </button>
           )}
           <h1 className="text-lg font-semibold flex-1">{title}</h1>
+          <OfflineBadge />
         </header>
       )}
 
       <main className="flex-1 overflow-auto pb-20">
         {children}
       </main>
+
+      <OfflineIndicator />
 
       <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg z-20">
         <div className="flex justify-around items-center h-16 px-2">

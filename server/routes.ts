@@ -267,6 +267,145 @@ export async function registerRoutes(
     }
   });
 
+  // --- Route Optimization ---
+  app.post("/api/optimize-route", async (req, res) => {
+    const routeSchema = z.object({
+      jobIds: z.array(z.number()).min(2),
+      startLat: z.number().optional(),
+      startLng: z.number().optional()
+    });
+    
+    let input;
+    try {
+      input = routeSchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+    
+    const { jobIds, startLat, startLng } = input;
+    
+    const jobs = await Promise.all(
+      jobIds.map(id => storage.getJob(id))
+    );
+    
+    const validJobs = jobs.filter(j => j !== undefined) as NonNullable<typeof jobs[0]>[];
+    
+    if (validJobs.length < 2) {
+      return res.status(400).json({ message: "Need at least 2 valid jobs to optimize" });
+    }
+    
+    const jobsWithLocation = validJobs.filter(j => 
+      j.customer?.addressLat && j.customer?.addressLng
+    );
+    
+    const jobsMissingLocation = validJobs.filter(j => 
+      !j.customer?.addressLat || !j.customer?.addressLng
+    );
+    
+    if (jobsWithLocation.length < 2) {
+      return res.json({
+        optimizedOrder: validJobs.map(j => j.id),
+        jobs: validJobs.map(j => ({
+          id: j.id,
+          jobNumber: j.jobNumber,
+          customer: j.customer ? {
+            name: `${j.customer.firstName} ${j.customer.lastName}`,
+            address: `${j.customer.addressStreet || ''}, ${j.customer.addressCity || ''}`
+          } : null,
+          hasLocation: !!(j.customer?.addressLat && j.customer?.addressLng)
+        })),
+        totalDistanceMiles: null,
+        message: `Insufficient location data. ${jobsMissingLocation.length} job(s) missing coordinates.`,
+        missingLocationJobIds: jobsMissingLocation.map(j => j.id)
+      });
+    }
+    
+    const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+      const R = 3959;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    };
+    
+    const optimized: typeof jobsWithLocation = [];
+    const remaining = [...jobsWithLocation];
+    
+    let currentLat: number;
+    let currentLng: number;
+    
+    if (startLat !== undefined && startLng !== undefined) {
+      currentLat = startLat;
+      currentLng = startLng;
+    } else {
+      const firstJob = remaining.shift()!;
+      optimized.push(firstJob);
+      currentLat = parseFloat(firstJob.customer!.addressLat!);
+      currentLng = parseFloat(firstJob.customer!.addressLng!);
+    }
+    
+    while (remaining.length > 0) {
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+      
+      for (let i = 0; i < remaining.length; i++) {
+        const job = remaining[i];
+        const lat = parseFloat(job.customer!.addressLat!);
+        const lng = parseFloat(job.customer!.addressLng!);
+        const dist = haversineDistance(currentLat, currentLng, lat, lng);
+        
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIdx = i;
+        }
+      }
+      
+      const nearest = remaining.splice(nearestIdx, 1)[0];
+      optimized.push(nearest);
+      currentLat = parseFloat(nearest.customer!.addressLat!);
+      currentLng = parseFloat(nearest.customer!.addressLng!);
+    }
+    
+    let totalDistance = 0;
+    let prevLat = startLat ?? parseFloat(optimized[0].customer!.addressLat!);
+    let prevLng = startLng ?? parseFloat(optimized[0].customer!.addressLng!);
+    
+    for (const job of optimized) {
+      const lat = parseFloat(job.customer!.addressLat!);
+      const lng = parseFloat(job.customer!.addressLng!);
+      totalDistance += haversineDistance(prevLat, prevLng, lat, lng);
+      prevLat = lat;
+      prevLng = lng;
+    }
+    
+    const response: any = {
+      optimizedOrder: optimized.map(j => j.id),
+      jobs: optimized.map(j => ({
+        id: j.id,
+        jobNumber: j.jobNumber,
+        customer: j.customer ? {
+          name: `${j.customer.firstName} ${j.customer.lastName}`,
+          address: `${j.customer.addressStreet || ''}, ${j.customer.addressCity || ''}`
+        } : null,
+        hasLocation: true
+      })),
+      totalDistanceMiles: Math.round(totalDistance * 10) / 10
+    };
+    
+    if (jobsMissingLocation.length > 0) {
+      response.message = `${jobsMissingLocation.length} job(s) excluded due to missing coordinates`;
+      response.missingLocationJobIds = jobsMissingLocation.map(j => j.id);
+    }
+    
+    res.json(response);
+  });
+
   // --- Invoice & Payments ---
   app.post("/api/jobs/:id/invoice", async (req, res) => {
     const invoiceSchema = z.object({

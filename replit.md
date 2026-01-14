@@ -128,9 +128,22 @@ shared/           # Shared types, schemas, and route definitions
 
 The application is configured as a PWA for mobile installation:
 - **Manifest**: `client/public/manifest.json` defines app name, icons, and shortcuts
-- **Service Worker**: `client/public/sw.js` provides offline caching
+- **Service Worker**: `client/public/sw.js` provides offline caching and mutation queuing
 - **Install**: Users can add to home screen on iOS/Android for app-like experience
-- **Offline Support**: Cached API responses available when offline
+- **Offline Support**: 
+  - Cached API responses available when offline
+  - JSON mutations (status updates, notes) queued in IndexedDB for sync when online
+  - Photo uploads require connectivity (users are notified)
+  - Automatic sync when connection restored
+- **Offline Indicator**: `OfflineIndicator.tsx` shows connection status and pending updates
+
+## Route Optimization
+
+- **Endpoint**: `POST /api/optimize-route` - Optimizes job order using nearest-neighbor algorithm
+- **Input**: Array of job IDs and optional start coordinates
+- **Output**: Optimized job order with total distance and Google Maps link
+- **Component**: `RouteOptimizer.tsx` provides UI for selecting and optimizing routes
+- **Features**: Reports jobs missing coordinates, handles edge cases gracefully
 
 ## Mobile vs Desktop Experience
 
