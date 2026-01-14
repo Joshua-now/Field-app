@@ -15,6 +15,7 @@ import { format } from "date-fns";
 import { useState } from "react";
 import type { Job, Customer, Technician, JobPhoto } from "@shared/schema";
 import { SignatureCapture } from "@/components/SignatureCapture";
+import { JobChecklist } from "@/components/JobChecklist";
 
 type JobWithRelations = Job & { customer: Customer; technician: Technician | null };
 
@@ -176,6 +177,14 @@ export default function TechJobDetail() {
             </h3>
             <p className="text-sm">{job.specialInstructions}</p>
           </Card>
+        )}
+
+        {(job.status === "arrived" || job.status === "in_progress") && (
+          <JobChecklist 
+            jobId={job.id} 
+            serviceType={job.serviceType}
+            canEdit={job.status === "in_progress"}
+          />
         )}
 
         <Card className="p-4">

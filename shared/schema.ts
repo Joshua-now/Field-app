@@ -192,6 +192,34 @@ export const technicianScheduleRelations = relations(technicianSchedule, ({ one 
   }),
 }));
 
+// --- Job Checklists ---
+export const serviceChecklists = pgTable("service_checklists", {
+  id: serial("id").primaryKey(),
+  serviceType: text("service_type").notNull(), // hvac_repair, plumbing_repair, etc.
+  name: text("name").notNull(),
+  items: jsonb("items").notNull(), // [{step: 1, label: "...", required: true}]
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const jobChecklistItems = pgTable("job_checklist_items", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").references(() => jobs.id),
+  checklistId: integer("checklist_id").references(() => serviceChecklists.id),
+  stepNumber: integer("step_number").notNull(),
+  label: text("label").notNull(),
+  isCompleted: boolean("is_completed").default(false),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+});
+
+export const jobChecklistItemsRelations = relations(jobChecklistItems, ({ one }) => ({
+  job: one(jobs, {
+    fields: [jobChecklistItems.jobId],
+    references: [jobs.id],
+  }),
+}));
+
 // --- Parts Inventory ---
 export const partsInventory = pgTable("parts_inventory", {
   id: serial("id").primaryKey(),
@@ -233,6 +261,8 @@ export const insertJobPhotoSchema = createInsertSchema(jobPhotos).omit({ id: tru
 export const insertJobNoteSchema = createInsertSchema(jobNotes).omit({ id: true, createdAt: true });
 export const insertScheduleSchema = createInsertSchema(technicianSchedule).omit({ id: true, createdAt: true });
 export const insertPartSchema = createInsertSchema(partsInventory).omit({ id: true });
+export const insertServiceChecklistSchema = createInsertSchema(serviceChecklists).omit({ id: true, createdAt: true });
+export const insertJobChecklistItemSchema = createInsertSchema(jobChecklistItems).omit({ id: true, completedAt: true });
 
 // --- Types ---
 export type Technician = typeof technicians.$inferSelect;
@@ -255,3 +285,9 @@ export type InsertSchedule = z.infer<typeof insertScheduleSchema>;
 
 export type Part = typeof partsInventory.$inferSelect;
 export type InsertPart = z.infer<typeof insertPartSchema>;
+
+export type ServiceChecklist = typeof serviceChecklists.$inferSelect;
+export type InsertServiceChecklist = z.infer<typeof insertServiceChecklistSchema>;
+
+export type JobChecklistItem = typeof jobChecklistItems.$inferSelect;
+export type InsertJobChecklistItem = z.infer<typeof insertJobChecklistItemSchema>;

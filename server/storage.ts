@@ -1,7 +1,7 @@
 import { 
-  technicians, customers, jobs, jobPhotos, jobNotes, technicianSchedule, partsInventory,
-  type InsertTechnician, type InsertCustomer, type InsertJob, type InsertJobPhoto, type InsertJobNote, type InsertSchedule, type InsertPart,
-  type Technician, type Customer, type Job, type JobPhoto, type JobNote, type TechnicianSchedule, type Part
+  technicians, customers, jobs, jobPhotos, jobNotes, technicianSchedule, partsInventory, serviceChecklists, jobChecklistItems,
+  type InsertTechnician, type InsertCustomer, type InsertJob, type InsertJobPhoto, type InsertJobNote, type InsertSchedule, type InsertPart, type InsertServiceChecklist, type InsertJobChecklistItem,
+  type Technician, type Customer, type Job, type JobPhoto, type JobNote, type TechnicianSchedule, type Part, type ServiceChecklist, type JobChecklistItem
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, ilike } from "drizzle-orm";
@@ -38,6 +38,14 @@ export interface IStorage extends IAuthStorage {
   getJobPhotos(jobId: number): Promise<JobPhoto[]>;
   createJobPhoto(photo: InsertJobPhoto): Promise<JobPhoto>;
   deleteJobPhoto(id: number): Promise<boolean>;
+
+  // Checklists
+  getServiceChecklists(serviceType?: string): Promise<ServiceChecklist[]>;
+  createServiceChecklist(checklist: InsertServiceChecklist): Promise<ServiceChecklist>;
+  getJobChecklistItems(jobId: number): Promise<JobChecklistItem[]>;
+  createJobChecklistItem(item: InsertJobChecklistItem): Promise<JobChecklistItem>;
+  updateJobChecklistItem(id: number, updates: { isCompleted?: boolean; notes?: string }): Promise<JobChecklistItem>;
+  initializeJobChecklist(jobId: number, serviceType: string): Promise<JobChecklistItem[]>;
 
   // System
   healthCheck(): Promise<boolean>;
@@ -236,6 +244,74 @@ export class DatabaseStorage implements IStorage {
   async deleteJobPhoto(id: number): Promise<boolean> {
     const result = await db.delete(jobPhotos).where(eq(jobPhotos.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Checklists
+  async getServiceChecklists(serviceType?: string): Promise<ServiceChecklist[]> {
+    if (serviceType) {
+      return await db.select().from(serviceChecklists)
+        .where(and(eq(serviceChecklists.serviceType, serviceType), eq(serviceChecklists.isActive, true)));
+    }
+    return await db.select().from(serviceChecklists).where(eq(serviceChecklists.isActive, true));
+  }
+
+  async createServiceChecklist(checklist: InsertServiceChecklist): Promise<ServiceChecklist> {
+    const [newChecklist] = await db.insert(serviceChecklists).values(checklist).returning();
+    return newChecklist;
+  }
+
+  async getJobChecklistItems(jobId: number): Promise<JobChecklistItem[]> {
+    return await db.select().from(jobChecklistItems)
+      .where(eq(jobChecklistItems.jobId, jobId))
+      .orderBy(jobChecklistItems.stepNumber);
+  }
+
+  async createJobChecklistItem(item: InsertJobChecklistItem): Promise<JobChecklistItem> {
+    const [newItem] = await db.insert(jobChecklistItems).values(item).returning();
+    return newItem;
+  }
+
+  async updateJobChecklistItem(id: number, updates: { isCompleted?: boolean; notes?: string }): Promise<JobChecklistItem> {
+    const updateData: any = { ...updates };
+    if (updates.isCompleted) {
+      updateData.completedAt = new Date();
+    }
+    const [updated] = await db.update(jobChecklistItems).set(updateData).where(eq(jobChecklistItems.id, id)).returning();
+    return updated;
+  }
+
+  async initializeJobChecklist(jobId: number, serviceType: string): Promise<JobChecklistItem[]> {
+    // Get the checklist template for this service type
+    const [template] = await db.select().from(serviceChecklists)
+      .where(and(eq(serviceChecklists.serviceType, serviceType), eq(serviceChecklists.isActive, true)))
+      .limit(1);
+    
+    if (!template) {
+      return [];
+    }
+    
+    // Check if already initialized
+    const existing = await this.getJobChecklistItems(jobId);
+    if (existing.length > 0) {
+      return existing;
+    }
+    
+    // Create checklist items from template
+    const items = template.items as Array<{ step: number; label: string; required?: boolean }>;
+    const createdItems: JobChecklistItem[] = [];
+    
+    for (const item of items) {
+      const newItem = await this.createJobChecklistItem({
+        jobId,
+        checklistId: template.id,
+        stepNumber: item.step,
+        label: item.label,
+        isCompleted: false
+      });
+      createdItems.push(newItem);
+    }
+    
+    return createdItems;
   }
 
   // System - Health Check

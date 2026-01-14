@@ -207,6 +207,66 @@ export async function registerRoutes(
     }
   });
 
+  // --- Job Checklists ---
+  app.get("/api/jobs/:jobId/checklist", async (req, res) => {
+    const items = await storage.getJobChecklistItems(Number(req.params.jobId));
+    res.json(items);
+  });
+
+  app.post("/api/jobs/:jobId/checklist/initialize", async (req, res) => {
+    const job = await storage.getJob(Number(req.params.jobId));
+    if (!job) {
+      return res.status(404).json({ message: "Job not found" });
+    }
+    const items = await storage.initializeJobChecklist(job.id, job.serviceType);
+    res.json(items);
+  });
+
+  app.put("/api/checklist-items/:id", async (req, res) => {
+    const updateSchema = z.object({
+      isCompleted: z.boolean().optional(),
+      notes: z.string().optional()
+    });
+    try {
+      const input = updateSchema.parse(req.body);
+      const updated = await storage.updateJobChecklistItem(Number(req.params.id), input);
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.get("/api/service-checklists", async (req, res) => {
+    const serviceType = req.query.serviceType as string | undefined;
+    const checklists = await storage.getServiceChecklists(serviceType);
+    res.json(checklists);
+  });
+
+  app.post("/api/service-checklists", async (req, res) => {
+    const checklistSchema = z.object({
+      serviceType: z.string().min(1),
+      name: z.string().min(1),
+      items: z.array(z.object({
+        step: z.number(),
+        label: z.string(),
+        required: z.boolean().optional()
+      })).min(1)
+    });
+    try {
+      const input = checklistSchema.parse(req.body);
+      const checklist = await storage.createServiceChecklist({ ...input, isActive: true });
+      res.status(201).json(checklist);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
   // --- Admin: Orphan Cleanup ---
   app.post("/api/admin/cleanup", strictRateLimiter, async (req, res) => {
     try {
@@ -532,6 +592,55 @@ async function seedDatabase() {
       status: "assigned"
     });
     
+    // Service Checklists
+    await storage.createServiceChecklist({
+      serviceType: "hvac_repair",
+      name: "HVAC Repair Checklist",
+      items: [
+        { step: 1, label: "Verify customer complaint", required: true },
+        { step: 2, label: "Check thermostat settings", required: true },
+        { step: 3, label: "Inspect air filter condition", required: true },
+        { step: 4, label: "Check refrigerant levels", required: true },
+        { step: 5, label: "Inspect condenser coils", required: false },
+        { step: 6, label: "Test electrical connections", required: true },
+        { step: 7, label: "Verify proper airflow", required: true },
+        { step: 8, label: "Document work performed", required: true }
+      ],
+      isActive: true
+    });
+
+    await storage.createServiceChecklist({
+      serviceType: "plumbing_leak",
+      name: "Plumbing Leak Repair",
+      items: [
+        { step: 1, label: "Locate source of leak", required: true },
+        { step: 2, label: "Shut off water supply", required: true },
+        { step: 3, label: "Assess damage extent", required: true },
+        { step: 4, label: "Repair or replace affected components", required: true },
+        { step: 5, label: "Test for additional leaks", required: true },
+        { step: 6, label: "Restore water supply", required: true },
+        { step: 7, label: "Clean work area", required: false },
+        { step: 8, label: "Document work performed", required: true }
+      ],
+      isActive: true
+    });
+
+    await storage.createServiceChecklist({
+      serviceType: "hvac_maintenance",
+      name: "HVAC Preventive Maintenance",
+      items: [
+        { step: 1, label: "Replace air filters", required: true },
+        { step: 2, label: "Clean condenser coils", required: true },
+        { step: 3, label: "Check refrigerant charge", required: true },
+        { step: 4, label: "Inspect electrical connections", required: true },
+        { step: 5, label: "Lubricate moving parts", required: false },
+        { step: 6, label: "Check thermostat calibration", required: true },
+        { step: 7, label: "Inspect ductwork", required: false },
+        { step: 8, label: "Test system operation", required: true }
+      ],
+      isActive: true
+    });
+
     // Parts
     await storage.createPart({
       partName: "HVAC Filter 20x20x1",
