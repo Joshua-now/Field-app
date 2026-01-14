@@ -110,9 +110,9 @@ export default function JobDetail() {
 
           <Tabs defaultValue="photos">
             <TabsList className="w-full justify-start">
-              <TabsTrigger value="photos">Photos</TabsTrigger>
-              <TabsTrigger value="notes">Notes</TabsTrigger>
-              <TabsTrigger value="parts">Parts Used</TabsTrigger>
+              <TabsTrigger value="photos" data-testid="tab-photos">Photos</TabsTrigger>
+              <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
+              <TabsTrigger value="parts" data-testid="tab-parts">Parts Used</TabsTrigger>
             </TabsList>
             <TabsContent value="photos" className="mt-4">
               <Card>

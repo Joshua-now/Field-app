@@ -112,13 +112,13 @@ export default function Jobs() {
                         <FormLabel>Customer</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value?.toString()}>
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger data-testid="select-job-customer">
                               <SelectValue placeholder="Select Customer" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             {customers?.map(c => (
-                              <SelectItem key={c.id} value={c.id.toString()}>
+                              <SelectItem key={c.id} value={c.id.toString()} data-testid={`select-customer-${c.id}`}>
                                 {c.firstName} {c.lastName}
                               </SelectItem>
                             ))}
@@ -136,13 +136,13 @@ export default function Jobs() {
                         <FormLabel>Technician</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value?.toString()}>
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger data-testid="select-job-technician">
                               <SelectValue placeholder="Assign Tech" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             {technicians?.map(t => (
-                              <SelectItem key={t.id} value={t.id.toString()}>
+                              <SelectItem key={t.id} value={t.id.toString()} data-testid={`select-tech-${t.id}`}>
                                 {t.firstName} {t.lastName}
                               </SelectItem>
                             ))}
@@ -162,7 +162,7 @@ export default function Jobs() {
                       <FormItem>
                         <FormLabel>Date</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} />
+                          <Input type="date" {...field} data-testid="input-job-date" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -175,7 +175,7 @@ export default function Jobs() {
                       <FormItem>
                         <FormLabel>Start Time</FormLabel>
                         <FormControl>
-                          <Input type="time" {...field} />
+                          <Input type="time" {...field} data-testid="input-job-time" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -190,7 +190,7 @@ export default function Jobs() {
                     <FormItem>
                       <FormLabel>Service Type</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. HVAC Repair" {...field} />
+                        <Input placeholder="e.g. HVAC Repair" {...field} data-testid="input-job-service-type" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -204,7 +204,7 @@ export default function Jobs() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Job details..." {...field} />
+                        <Textarea placeholder="Job details..." {...field} data-testid="textarea-job-description" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -233,15 +233,15 @@ export default function Jobs() {
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px] bg-background">
+          <SelectTrigger className="w-[180px] bg-background" data-testid="select-status-filter">
             <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="all" data-testid="filter-all">All Statuses</SelectItem>
+            <SelectItem value="scheduled" data-testid="filter-scheduled">Scheduled</SelectItem>
+            <SelectItem value="in_progress" data-testid="filter-in-progress">In Progress</SelectItem>
+            <SelectItem value="completed" data-testid="filter-completed">Completed</SelectItem>
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>

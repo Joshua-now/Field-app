@@ -65,7 +65,7 @@ export default function Technicians() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>First Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-tech-firstname" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -76,7 +76,7 @@ export default function Technicians() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Last Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-tech-lastname" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -88,7 +88,7 @@ export default function Technicians() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Email</FormLabel>
-                      <FormControl><Input type="email" {...field} /></FormControl>
+                      <FormControl><Input type="email" {...field} data-testid="input-tech-email" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -99,7 +99,7 @@ export default function Technicians() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Phone</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} data-testid="input-tech-phone" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

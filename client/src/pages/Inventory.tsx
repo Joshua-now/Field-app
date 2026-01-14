@@ -60,7 +60,7 @@ export default function Inventory() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Part Name</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} data-testid="input-part-name" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -71,7 +71,7 @@ export default function Inventory() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Part Number (SKU)</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} data-testid="input-part-number" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -83,7 +83,7 @@ export default function Inventory() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Quantity</FormLabel>
-                        <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} /></FormControl>
+                        <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} data-testid="input-part-quantity" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -94,7 +94,7 @@ export default function Inventory() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Cost ($)</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                        <FormControl><Input type="number" step="0.01" {...field} data-testid="input-part-cost" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

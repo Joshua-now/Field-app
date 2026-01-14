@@ -64,7 +64,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>First Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-customer-firstname" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -75,7 +75,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Last Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-customer-lastname" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -88,7 +88,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Email</FormLabel>
-                        <FormControl><Input type="email" {...field} /></FormControl>
+                        <FormControl><Input type="email" {...field} data-testid="input-customer-email" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -99,7 +99,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Phone</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-customer-phone" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -111,7 +111,7 @@ export default function Customers() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Street Address</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} data-testid="input-customer-street" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -123,7 +123,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>City</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-customer-city" /></FormControl>
                       </FormItem>
                     )}
                   />
@@ -133,7 +133,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>State</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-customer-state" /></FormControl>
                       </FormItem>
                     )}
                   />
@@ -143,7 +143,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Zip</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormControl><Input {...field} data-testid="input-customer-zip" /></FormControl>
                       </FormItem>
                     )}
                   />

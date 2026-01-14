@@ -1,6 +1,7 @@
 import { useJobs } from "@/hooks/use-jobs";
 import { useTechnicians } from "@/hooks/use-technicians";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { 
   Briefcase, 
@@ -20,8 +21,49 @@ export default function Dashboard() {
 
   if (loadingJobs || loadingTechs) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="space-y-8">
+        <div>
+          <Skeleton className="h-9 w-40 mb-2" />
+          <Skeleton className="h-5 w-64" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="border-border/50 shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-8 w-8 rounded-lg" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-12" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid gap-8 md:grid-cols-7">
+          <Card className="md:col-span-4 border-border/50 shadow-sm">
+            <CardHeader><Skeleton className="h-6 w-32" /></CardHeader>
+            <CardContent className="space-y-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between pb-4">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-3 w-32" />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="h-6 w-20 rounded-full" />
+                    <Skeleton className="h-8 w-16" />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card className="md:col-span-3 border-border/50 shadow-sm">
+            <CardHeader><Skeleton className="h-6 w-40" /></CardHeader>
+            <CardContent>
+              <Skeleton className="h-[300px] w-full" />
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -81,17 +123,17 @@ export default function Dashboard() {
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Card key={stat.title} className="border-border/50 shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <Card key={stat.title} className="border-border/50 shadow-sm hover:shadow-md transition-shadow" data-testid={`card-stat-${stat.title.toLowerCase().replace(/\s+/g, '-')}`}>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {stat.title}
               </CardTitle>
-              <div className={`p-2 rounded-lg ${stat.bg}`}>
+              <div className={`p-2 rounded-lg ${stat.bg} dark:bg-opacity-20`}>
                 <stat.icon className={`h-4 w-4 ${stat.color}`} />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-foreground">{stat.value}</div>
+              <div className="text-2xl font-bold text-foreground" data-testid={`text-stat-value-${stat.title.toLowerCase().replace(/\s+/g, '-')}`}>{stat.value}</div>
             </CardContent>
           </Card>
         ))}
@@ -189,16 +231,16 @@ export default function Dashboard() {
         <CardContent>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {technicians?.map((tech) => (
-              <div key={tech.id} className="flex items-start space-x-4 p-4 rounded-xl bg-muted/50">
+              <div key={tech.id} className="flex items-start space-x-4 p-4 rounded-xl bg-muted/50" data-testid={`card-tech-${tech.id}`}>
                 <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
                   {tech.firstName[0]}{tech.lastName[0]}
                 </div>
                 <div>
-                  <h4 className="font-semibold text-sm">{tech.firstName} {tech.lastName}</h4>
+                  <h4 className="font-semibold text-sm" data-testid={`text-tech-name-${tech.id}`}>{tech.firstName} {tech.lastName}</h4>
                   <p className="text-xs text-muted-foreground mb-2">{tech.phone}</p>
                   <div className="flex items-center text-xs text-muted-foreground gap-1">
                     <MapPin className="w-3 h-3" />
-                    <span>
+                    <span data-testid={`text-tech-location-${tech.id}`}>
                       {tech.currentLocationLat ? "Location Active" : "No Location Data"}
                     </span>
                   </div>
