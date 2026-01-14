@@ -1,0 +1,245 @@
+I need you to thoroughly test this contractor field management application. Run comprehensive tests and report what works and what needs fixing.
+
+TEST EVERYTHING IN THIS ORDER:
+
+## PHASE 1: BACKEND API TESTS
+
+Test all API endpoints:
+
+1. Health Check:
+   - GET /api/health
+   - Should return 200 OK
+
+2. Authentication:
+   - POST /api/auth/login with valid credentials
+   - POST /api/auth/login with invalid credentials
+   - POST /api/auth/logout
+   - Verify JWT token generation
+
+3. Jobs API:
+   - GET /api/jobs (list all jobs)
+   - GET /api/jobs/:id (single job)
+   - POST /api/jobs (create new job)
+   - PUT /api/jobs/:id (update job)
+   - DELETE /api/jobs/:id (delete job)
+   - POST /api/jobs/:id/status (update status)
+
+4. Customers API:
+   - GET /api/customers
+   - GET /api/customers/search?q=john
+   - POST /api/customers (create)
+   - PUT /api/customers/:id (update)
+
+5. Technicians API:
+   - GET /api/technicians
+   - POST /api/technicians/:id/location (update location)
+
+6. Photos API:
+   - POST /api/photos/upload (simulate file upload)
+   - GET /api/photos?job_id=1
+   - DELETE /api/photos/:id
+
+7. Webhooks:
+   - POST /api/webhooks/gohighlevel (test with sample payload)
+   - POST /api/webhooks/retell/callback (test with sample payload)
+
+For each endpoint, verify:
+- Returns correct HTTP status code
+- Returns expected data structure
+- Handles errors gracefully
+- Validates input properly
+- Returns appropriate error messages
+
+## PHASE 2: DATABASE TESTS
+
+Test database operations:
+
+1. Check all tables exist:
+   - users
+   - technicians
+   - customers
+   - jobs
+   - job_photos
+   - job_notes
+   - ai_call_logs
+   - sms_logs
+
+2. Test CRUD operations:
+   - Create test records
+   - Read records back
+   - Update records
+   - Delete records
+   - Verify foreign key relationships
+
+3. Test data integrity:
+   - Required fields enforced
+   - Unique constraints work
+   - Default values applied
+   - Timestamps update correctly
+
+## PHASE 3: BUSINESS LOGIC TESTS
+
+Test critical workflows:
+
+1. Complete Job Creation Flow:
+   - Create customer
+   - Create job for that customer
+   - Assign job to technician
+   - Verify all relationships work
+   - Check that job appears in tech's schedule
+
+2. Job Status Progression:
+   - Create job (status: "scheduled")
+   - Update to "assigned"
+   - Update to "en_route"
+   - Update to "arrived"
+   - Update to "in_progress"
+   - Update to "completed"
+   - Verify timestamps recorded for each status
+
+3. Photo Upload Workflow:
+   - Create a job
+   - Simulate photo upload to that job
+   - Verify photo record created in database
+   - Verify photo URL is valid
+   - Verify photo is associated with correct job
+
+4. No-Show Rescue Flow:
+   - Create job
+   - Mark tech as "arrived"
+   - Mark job as "no_show"
+   - Verify AI call trigger (check logs or webhook call)
+   - Verify job marked for follow-up
+
+## PHASE 4: INTEGRATION TESTS
+
+Test external service connections:
+
+1. GoHighLevel Webhook:
+   - Send sample appointment webhook payload
+   - Verify customer created (if new)
+   - Verify job created
+   - Verify data mapped correctly
+
+2. Photo Storage (Cloudinary/S3):
+   - Verify connection to storage service
+   - Test upload small image
+   - Test upload large image (5MB)
+   - Verify URL generation
+   - Test thumbnail generation (if implemented)
+
+3. SMS Service (Twilio):
+   - Verify credentials configured
+   - Test sending SMS (to your test number)
+   - Verify delivery status logged
+
+4. Retell AI:
+   - Verify API key configured
+   - Test webhook endpoint
+   - Simulate callback response
+
+## PHASE 5: SECURITY TESTS
+
+Test security measures:
+
+1. Authentication:
+   - Try accessing protected endpoints without token → should return 401
+   - Try with invalid token → should return 401
+   - Try with expired token → should return 401
+
+2. Authorization:
+   - Tech user should only see their own jobs
+   - Tech user shouldn't access admin endpoints
+   - Office user should see all jobs
+
+3. Input Validation:
+   - Test SQL injection: Try username: ' OR '1'='1
+   - Test XSS: Try name: <script>alert('test')</script>
+   - Test with extremely long strings
+   - Test with special characters
+   - Test with empty required fields
+
+4. Data Privacy:
+   - Verify passwords are hashed (not plain text)
+   - Verify sensitive data not exposed in API responses
+   - Verify photo URLs require authentication
+
+## PHASE 6: PERFORMANCE TESTS
+
+Test response times and load:
+
+1. API Response Times:
+   - Measure GET /api/jobs response time
+   - Measure POST /api/jobs response time
+   - Measure photo upload time
+   - All should be under 1 second (except large uploads)
+
+2. Database Performance:
+   - Query with 100 jobs
+   - Query with filters
+   - Complex joins (jobs + customers + techs)
+   - Should complete in under 500ms
+
+3. Concurrent Requests:
+   - Send 10 simultaneous requests
+   - All should succeed without errors
+
+## PHASE 7: ERROR HANDLING
+
+Test how app handles errors:
+
+1. Database Connection Lost:
+   - Temporarily disconnect database
+   - Try API call
+   - Should return proper error message
+
+2. Invalid Data:
+   - Send malformed JSON
+   - Send wrong data types
+   - Should return 400 with clear error
+
+3. Missing Required Fields:
+   - Try creating job without customer_id
+   - Try creating customer without phone
+   - Should return validation errors
+
+4. Not Found Errors:
+   - GET /api/jobs/99999 (doesn't exist)
+   - Should return 404
+
+## PHASE 8: REPORT RESULTS
+
+After running all tests, provide me with:
+
+1. SUMMARY:
+   - Total tests run: X
+   - Passed: X
+   - Failed: X
+   - Critical failures: X
+
+2. CRITICAL ISSUES (must fix before launch):
+   - List any blocking bugs
+   - Security vulnerabilities
+   - Data loss risks
+
+3. IMPORTANT ISSUES (should fix soon):
+   - Functionality problems
+   - Performance issues
+   - Missing validations
+
+4. MINOR ISSUES (can fix later):
+   - Small bugs
+   - UI improvements
+   - Nice-to-have features
+
+5. WHAT WORKS WELL:
+   - Features that passed all tests
+   - Fast response times
+   - Good error handling
+
+6. RECOMMENDATIONS:
+   - What to fix first
+   - What can wait
+   - Any missing features you noticed
+
+Please run these tests now and give me a detailed report.
