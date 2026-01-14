@@ -81,3 +81,38 @@ shared/           # Shared types, schemas, and route definitions
 - **recharts**: Dashboard charts and analytics
 - **date-fns**: Date formatting and manipulation
 - **Radix UI**: Accessible UI primitives for shadcn/ui components
+
+## Guardrails & Self-Repair
+
+### Job Status State Machine
+- Valid statuses: `scheduled`, `assigned`, `en_route`, `arrived`, `in_progress`, `completed`, `cancelled`
+- Transitions are validated at API level - invalid transitions return 409 Conflict
+- State machine defined in `shared/jobStateMachine.ts`
+
+### Input Sanitization
+- `shared/sanitize.ts` provides sanitization utilities
+- Applied to customer create/update operations
+- Features: trim strings, lowercase emails, normalize phone/zip, strip script tags
+
+### Rate Limiting
+- Global API rate limit: 100 requests/minute per IP
+- Strict limit for admin endpoints: 10 requests/minute
+- Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+- Middleware: `server/middleware/rateLimiter.ts`
+
+### Error Handling
+- Centralized error handler in `server/middleware/errorHandler.ts`
+- Custom error classes: `AppError`, `ValidationError`, `NotFoundError`, `ConflictError`
+- Automatic Zod validation error formatting
+- Graceful handling of duplicate key and foreign key errors
+
+### Database Resilience
+- Connection pool with 20 max connections
+- 30-second idle timeout, 10-second connection timeout
+- Pool error and connect event logging
+- Health check endpoint: `GET /api/health` (returns DB status)
+
+### Self-Repair: Orphan Cleanup
+- Endpoint: `POST /api/admin/cleanup` (strict rate limited)
+- Removes orphaned photos and notes not linked to existing jobs
+- Returns count of cleaned records

@@ -6,6 +6,7 @@ import {
 import { db } from "./db";
 import { eq, desc, and, or, ilike } from "drizzle-orm";
 import { authStorage, type IAuthStorage } from "./replit_integrations/auth/storage";
+import { sanitizeString, sanitizeEmail, sanitizePhone, sanitizeNotes, normalizeZipCode } from "@shared/sanitize";
 
 export interface IStorage extends IAuthStorage {
   // Technicians
@@ -36,6 +37,10 @@ export interface IStorage extends IAuthStorage {
   getJobPhotos(jobId: number): Promise<JobPhoto[]>;
   createJobPhoto(photo: InsertJobPhoto): Promise<JobPhoto>;
   deleteJobPhoto(id: number): Promise<boolean>;
+
+  // System
+  healthCheck(): Promise<boolean>;
+  cleanupOrphans(): Promise<{ orphanedPhotos: number; orphanedNotes: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -88,12 +93,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
-    const [newCustomer] = await db.insert(customers).values(customer).returning();
+    const sanitized = {
+      ...customer,
+      firstName: sanitizeString(customer.firstName),
+      lastName: sanitizeString(customer.lastName),
+      email: sanitizeEmail(customer.email),
+      phone: sanitizePhone(customer.phone),
+      addressZip: normalizeZipCode(customer.addressZip),
+      notes: customer.notes ? sanitizeNotes(customer.notes) : customer.notes,
+      accessNotes: customer.accessNotes ? sanitizeNotes(customer.accessNotes) : customer.accessNotes
+    };
+    const [newCustomer] = await db.insert(customers).values(sanitized).returning();
     return newCustomer;
   }
 
   async updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer> {
-    const [updated] = await db.update(customers).set({ ...customer, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
+    const sanitized: Partial<InsertCustomer> = { ...customer };
+    if (customer.firstName !== undefined) sanitized.firstName = sanitizeString(customer.firstName);
+    if (customer.lastName !== undefined) sanitized.lastName = sanitizeString(customer.lastName);
+    if (customer.email !== undefined) sanitized.email = sanitizeEmail(customer.email);
+    if (customer.phone !== undefined) sanitized.phone = sanitizePhone(customer.phone);
+    if (customer.addressZip !== undefined) sanitized.addressZip = normalizeZipCode(customer.addressZip);
+    if (customer.notes !== undefined) sanitized.notes = sanitizeNotes(customer.notes);
+    if (customer.accessNotes !== undefined) sanitized.accessNotes = sanitizeNotes(customer.accessNotes);
+    
+    const [updated] = await db.update(customers).set({ ...sanitized, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
     return updated;
   }
 
@@ -199,6 +223,43 @@ export class DatabaseStorage implements IStorage {
   async deleteJobPhoto(id: number): Promise<boolean> {
     const result = await db.delete(jobPhotos).where(eq(jobPhotos.id, id)).returning();
     return result.length > 0;
+  }
+
+  // System - Health Check
+  async healthCheck(): Promise<boolean> {
+    try {
+      await db.select().from(technicians).limit(1);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // System - Cleanup orphaned records
+  async cleanupOrphans(): Promise<{ orphanedPhotos: number; orphanedNotes: number }> {
+    const allJobs = await db.select({ id: jobs.id }).from(jobs);
+    const jobIds = new Set(allJobs.map(j => j.id));
+    
+    const allPhotos = await db.select().from(jobPhotos);
+    const orphanedPhotoIds = allPhotos.filter(p => !jobIds.has(p.jobId)).map(p => p.id);
+    
+    const allNotes = await db.select().from(jobNotes);
+    const orphanedNoteIds = allNotes.filter(n => !jobIds.has(n.jobId)).map(n => n.id);
+    
+    for (const id of orphanedPhotoIds) {
+      await db.delete(jobPhotos).where(eq(jobPhotos.id, id));
+    }
+    
+    for (const id of orphanedNoteIds) {
+      await db.delete(jobNotes).where(eq(jobNotes.id, id));
+    }
+    
+    console.log(`[Cleanup] Removed ${orphanedPhotoIds.length} orphaned photos, ${orphanedNoteIds.length} orphaned notes`);
+    
+    return { 
+      orphanedPhotos: orphanedPhotoIds.length, 
+      orphanedNotes: orphanedNoteIds.length 
+    };
   }
 }
 

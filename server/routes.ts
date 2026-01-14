@@ -8,6 +8,9 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import { registerChatRoutes } from "./replit_integrations/chat";
 import { registerImageRoutes } from "./replit_integrations/image";
 import { registerAudioRoutes } from "./replit_integrations/audio";
+import { validateStatusTransition, JobStatus } from "@shared/jobStateMachine";
+import { errorHandler } from "./middleware/errorHandler";
+import { apiRateLimiter, strictRateLimiter } from "./middleware/rateLimiter";
 
 // Helper to strip sensitive data from technician responses
 function sanitizeTechnician(tech: any) {
@@ -30,9 +33,42 @@ export async function registerRoutes(
   registerImageRoutes(app);
   registerAudioRoutes(app);
 
+  // Apply rate limiting to all API routes
+  app.use("/api", apiRateLimiter);
+
   // --- Health Check ---
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  app.get("/api/health", async (req, res) => {
+    try {
+      const dbCheck = await storage.healthCheck();
+      res.json({ 
+        status: "ok", 
+        timestamp: new Date().toISOString(),
+        database: dbCheck ? "connected" : "disconnected"
+      });
+    } catch (err) {
+      res.status(503).json({ 
+        status: "degraded", 
+        timestamp: new Date().toISOString(),
+        database: "error"
+      });
+    }
+  });
+
+  // --- Admin: Orphan Cleanup ---
+  app.post("/api/admin/cleanup", strictRateLimiter, async (req, res) => {
+    try {
+      const result = await storage.cleanupOrphans();
+      res.json({ 
+        success: true, 
+        cleaned: result,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      res.status(500).json({ 
+        success: false, 
+        message: "Cleanup failed" 
+      });
+    }
   });
 
   // --- API Routes ---
@@ -162,6 +198,23 @@ export async function registerRoutes(
   app.put(api.jobs.update.path, async (req, res) => {
     try {
       const input = api.jobs.update.input.parse(req.body);
+      
+      if (input.status) {
+        const currentJob = await storage.getJob(Number(req.params.id));
+        if (!currentJob) return res.status(404).json({ message: "Job not found" });
+        
+        const validation = validateStatusTransition(
+          currentJob.status as JobStatus, 
+          input.status as JobStatus
+        );
+        if (!validation.valid) {
+          return res.status(409).json({ 
+            error: "Invalid Status Transition",
+            message: validation.message 
+          });
+        }
+      }
+      
       const job = await storage.updateJob(Number(req.params.id), input);
       if (!job) return res.status(404).json({ message: "Job not found" });
       res.json(job);
@@ -228,6 +281,9 @@ export async function registerRoutes(
 
   // Seed Data Function (called once if DB empty)
   await seedDatabase();
+
+  // Error handler middleware (must be last)
+  app.use(errorHandler);
 
   return httpServer;
 }
