@@ -1,18 +1,23 @@
 import { useJob, useUpdateJobStatus } from "@/hooks/use-jobs";
+import { useJobPhotos, useCreateJobPhoto } from "@/hooks/use-job-photos";
 import { useParams, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, MapPin, Phone, Mail, Calendar, Clock, User, Camera } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Mail, Calendar, Clock, User, Camera, ImageIcon } from "lucide-react";
 import { format } from "date-fns";
+import { useState } from "react";
 
 export default function JobDetail() {
   const { id } = useParams();
   const jobId = Number(id);
   const { data: job, isLoading } = useJob(jobId);
+  const { data: photos, isLoading: photosLoading } = useJobPhotos(jobId);
+  const createPhoto = useCreateJobPhoto(jobId);
   const updateStatus = useUpdateJobStatus();
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
 
   if (isLoading) return <div>Loading...</div>;
   if (!job) return <div>Job not found</div>;
@@ -92,7 +97,7 @@ export default function JobDetail() {
             <TabsContent value="photos" className="mt-4">
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-base">Job Photos</CardTitle>
                     <ObjectUploader
                       onGetUploadParameters={async (file) => {
@@ -104,8 +109,10 @@ export default function JobDetail() {
                             size: file.size,
                             contentType: file.type,
                           }),
+                          credentials: "include",
                         });
-                        const { uploadURL } = await res.json();
+                        const { uploadURL, objectPath } = await res.json();
+                        setUploadedUrl(objectPath);
                         return {
                           method: "PUT",
                           url: uploadURL,
@@ -113,8 +120,10 @@ export default function JobDetail() {
                         };
                       }}
                       onComplete={(result) => {
-                        console.log("Upload complete:", result);
-                        // Ideally trigger a mutation to save photo record to DB here
+                        if (result.successful && result.successful.length > 0 && uploadedUrl) {
+                          createPhoto.mutate({ photoUrl: uploadedUrl, category: "during" });
+                          setUploadedUrl(null);
+                        }
                       }}
                     >
                       <div className="flex items-center gap-2">
@@ -125,9 +134,31 @@ export default function JobDetail() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl">
-                    No photos uploaded yet.
-                  </div>
+                  {photosLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">Loading photos...</div>
+                  ) : photos && photos.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {photos.map((photo) => (
+                        <div key={photo.id} className="relative group aspect-square rounded-lg overflow-hidden border bg-muted" data-testid={`photo-${photo.id}`}>
+                          <img
+                            src={photo.photoUrl}
+                            alt={photo.caption || "Job photo"}
+                            className="w-full h-full object-cover"
+                          />
+                          {photo.caption && (
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-2 truncate">
+                              {photo.caption}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl flex flex-col items-center gap-2">
+                      <ImageIcon className="w-8 h-8 opacity-50" />
+                      <span>No photos uploaded yet.</span>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

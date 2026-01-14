@@ -227,7 +227,9 @@ export const insertJobSchema = createInsertSchema(jobs).omit({
   customerRating: true,
   customerFeedback: true
 });
-export const insertJobPhotoSchema = createInsertSchema(jobPhotos).omit({ id: true, uploadedAt: true });
+export const insertJobPhotoSchema = createInsertSchema(jobPhotos).omit({ id: true, uploadedAt: true }).extend({
+  technicianId: z.number().optional().nullable(),
+});
 export const insertJobNoteSchema = createInsertSchema(jobNotes).omit({ id: true, createdAt: true });
 export const insertScheduleSchema = createInsertSchema(technicianSchedule).omit({ id: true, createdAt: true });
 export const insertPartSchema = createInsertSchema(partsInventory).omit({ id: true });
