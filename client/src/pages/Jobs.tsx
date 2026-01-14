@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Calendar as CalendarIcon, Filter } from "lucide-react";
+import { Plus, Search, Calendar as CalendarIcon, Filter, Clock, Briefcase, Users } from "lucide-react";
 import { Link } from "wouter";
 import { useState } from "react";
 import { format } from "date-fns";
@@ -51,6 +51,8 @@ export default function Jobs() {
   const form = useForm({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      customerId: undefined as unknown as number,
+      technicianId: undefined as unknown as number,
       scheduledDate: format(new Date(), 'yyyy-MM-dd'),
       scheduledTimeStart: "09:00",
       estimatedDurationMinutes: 60,
@@ -58,7 +60,7 @@ export default function Jobs() {
       status: "scheduled",
       serviceType: "repair",
       description: "",
-      jobNumber: `JOB-${Date.now()}`, // Simple auto-gen
+      jobNumber: `JOB-${Date.now()}`,
     }
   });
 
