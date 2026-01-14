@@ -112,6 +112,25 @@ export async function registerRoutes(
     }
   });
 
+  // Technician Location Update (for mobile GPS tracking)
+  app.post("/api/technicians/:id/location", async (req, res) => {
+    try {
+      const { latitude, longitude } = req.body;
+      if (typeof latitude !== "number" || typeof longitude !== "number") {
+        return res.status(400).json({ message: "Invalid coordinates" });
+      }
+      const tech = await storage.updateTechnicianLocation(
+        Number(req.params.id),
+        latitude,
+        longitude
+      );
+      if (!tech) return res.status(404).json({ message: "Technician not found" });
+      res.json({ success: true, lastUpdate: tech.lastLocationUpdate });
+    } catch (err) {
+      throw err;
+    }
+  });
+
   // Customers
   app.get(api.customers.list.path, async (req, res) => {
     const customers = await storage.getCustomers(req.query.search as string);

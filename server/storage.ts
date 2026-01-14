@@ -14,6 +14,7 @@ export interface IStorage extends IAuthStorage {
   getTechnician(id: number): Promise<Technician | undefined>;
   createTechnician(tech: InsertTechnician): Promise<Technician>;
   updateTechnician(id: number, tech: Partial<InsertTechnician>): Promise<Technician>;
+  updateTechnicianLocation(id: number, lat: number, lng: number): Promise<Technician | undefined>;
 
   // Customers
   getCustomers(search?: string): Promise<Customer[]>;
@@ -68,6 +69,18 @@ export class DatabaseStorage implements IStorage {
 
   async updateTechnician(id: number, tech: Partial<InsertTechnician>): Promise<Technician> {
     const [updated] = await db.update(technicians).set(tech).where(eq(technicians.id, id)).returning();
+    return updated;
+  }
+
+  async updateTechnicianLocation(id: number, lat: number, lng: number): Promise<Technician | undefined> {
+    const [updated] = await db.update(technicians)
+      .set({
+        currentLocationLat: lat.toString(),
+        currentLocationLng: lng.toString(),
+        lastLocationUpdate: new Date(),
+      })
+      .where(eq(technicians.id, id))
+      .returning();
     return updated;
   }
 

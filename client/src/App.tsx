@@ -16,6 +16,7 @@ import JobDetail from "@/pages/JobDetail";
 import Technicians from "@/pages/Technicians";
 import Customers from "@/pages/Customers";
 import Inventory from "@/pages/Inventory";
+import LiveMap from "@/pages/LiveMap";
 import NotFound from "@/pages/not-found";
 
 import TechJobs from "@/pages/tech/TechJobs";
@@ -121,6 +122,9 @@ function Router() {
       </Route>
       <Route path="/inventory">
         {() => <ProtectedRoute component={Inventory} />}
+      </Route>
+      <Route path="/live-map">
+        {() => <ProtectedRoute component={LiveMap} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
