@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Briefcase, MapPin, User, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { appConfig } from "@/lib/config";
 
 interface MobileLayoutProps {
   children: React.ReactNode;

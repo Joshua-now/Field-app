@@ -139,3 +139,26 @@ The application is configured as a PWA for mobile installation:
 - Full dashboard with analytics, schedule board, customer management
 - Key features: Job creation, technician assignment, inventory, reporting
 - Components: `Layout.tsx`, `Dashboard.tsx`, `Schedule.tsx`, `Jobs.tsx`
+
+## Multi-Client Deployment
+
+The application supports easy deployment to multiple clients (HVAC companies) via environment variables:
+
+### Client Configuration Variables
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_COMPANY_NAME` | Company name shown in header | FieldTech |
+| `VITE_COMPANY_TAGLINE` | Tagline/subtitle | Field Service Management |
+| `VITE_SUPPORT_EMAIL` | Support contact email | support@example.com |
+| `VITE_SUPPORT_PHONE` | Support phone number | (empty) |
+| `COMPANY_NAME` | Backend company name | FieldTech |
+| `TIMEZONE` | Default timezone | America/New_York |
+| `SERVICE_TYPES` | Comma-separated service types | hvac_repair,plumbing_repair,... |
+
+### Deployment Steps for New Client
+1. Fork or clone the Replit project
+2. Set environment variables for client branding
+3. Create a new PostgreSQL database (automatic on Replit)
+4. Run database migrations: `npm run db:push`
+5. Publish via Replit's autoscale deployment
+6. Each client gets their own isolated instance with separate data

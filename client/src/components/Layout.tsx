@@ -14,6 +14,7 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { appConfig } from "@/lib/config";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -35,8 +36,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="hidden md:flex flex-col w-64 bg-card border-r border-border/50 shadow-sm fixed h-full z-20">
         <div className="p-6 border-b border-border/50">
           <h1 className="text-xl font-bold font-display text-primary flex items-center gap-2">
-            <span className="bg-primary text-primary-foreground p-1 rounded-md">FT</span>
-            FieldTech
+            <span className="bg-primary text-primary-foreground p-1 rounded-md">{appConfig.companyName.slice(0, 2).toUpperCase()}</span>
+            {appConfig.companyName}
           </h1>
         </div>
 
