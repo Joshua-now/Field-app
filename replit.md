@@ -145,6 +145,29 @@ The application is configured as a PWA for mobile installation:
 - **Component**: `RouteOptimizer.tsx` provides UI for selecting and optimizing routes
 - **Features**: Reports jobs missing coordinates, handles edge cases gracefully
 
+## AI Voice Calling (Bland AI)
+
+When a technician arrives and the customer isn't home, they can tap "Customer Not Home - AI Call" to trigger an automated AI phone call to the customer.
+
+### Environment Variables
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BLAND_AI_API_KEY` | Yes | API key from [Bland AI](https://app.bland.ai) |
+| `N8N_WEBHOOK_URL` | No | Optional n8n webhook URL for GHL sync |
+| `BLAND_WEBHOOK_URL` | No | Optional webhook for call completion events |
+| `SUPPORT_PHONE` | No | Callback number provided to customers |
+
+### Endpoints
+- `POST /api/jobs/:id/customer-not-home` - Triggers AI call to customer
+- `GET /api/calls/:callId` - Get call details from Bland AI
+
+### Integration Flow
+1. Technician marks "arrived" status
+2. Customer not answering door → tap "Customer Not Home - AI Call"
+3. Bland AI calls customer with personalized message
+4. If `N8N_WEBHOOK_URL` configured, event sent to n8n for GHL sync
+5. Call details logged for follow-up
+
 ## Mobile vs Desktop Experience
 
 ### Mobile (Field Technicians)

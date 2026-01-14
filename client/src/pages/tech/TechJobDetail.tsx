@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Loader2, MapPin, Phone, Clock, Navigation, Camera, 
-  CheckCircle, ArrowRight, Play, AlertCircle, PenTool
+  CheckCircle, ArrowRight, Play, AlertCircle, PenTool, PhoneCall
 } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -60,6 +60,25 @@ export default function TechJobDetail() {
       toast({ 
         title: "Cannot update status", 
         description: error.message || "Invalid status transition",
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const triggerAiCall = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/jobs/${id}/customer-not-home`);
+    },
+    onSuccess: () => {
+      toast({ 
+        title: "AI Calling Customer",
+        description: "The AI assistant is calling the customer now"
+      });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Could not call customer", 
+        description: error.message || "AI calling not available",
         variant: "destructive" 
       });
     },
@@ -167,6 +186,22 @@ export default function TechJobDetail() {
               Call
             </Button>
           </div>
+          {job.status === "arrived" && (
+            <Button 
+              variant="secondary" 
+              className="w-full mt-3"
+              onClick={() => triggerAiCall.mutate()}
+              disabled={triggerAiCall.isPending}
+              data-testid="button-customer-not-home"
+            >
+              {triggerAiCall.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <PhoneCall className="w-4 h-4 mr-2" />
+              )}
+              Customer Not Home - AI Call
+            </Button>
+          )}
         </Card>
 
         {job.specialInstructions && (

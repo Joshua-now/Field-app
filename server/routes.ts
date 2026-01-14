@@ -525,6 +525,57 @@ export async function registerRoutes(
     }
   });
 
+  // --- AI Voice Calling (Bland AI) ---
+  app.post("/api/jobs/:id/customer-not-home", async (req, res) => {
+    const jobId = Number(req.params.id);
+    const job = await storage.getJob(jobId);
+    
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (!job.customer) return res.status(400).json({ message: "Job has no customer" });
+    if (!job.customer.phone) return res.status(400).json({ message: "Customer has no phone number" });
+    
+    const { triggerCustomerNotHomeCall } = await import('./blandAiService');
+    
+    const companyName = process.env.COMPANY_NAME || process.env.VITE_COMPANY_NAME || 'FieldTech';
+    const callbackNumber = process.env.VITE_SUPPORT_PHONE || process.env.SUPPORT_PHONE;
+    
+    const result = await triggerCustomerNotHomeCall({
+      phoneNumber: job.customer.phone,
+      customerName: `${job.customer.firstName} ${job.customer.lastName}`,
+      technicianName: job.technician ? `${job.technician.firstName}` : 'your technician',
+      serviceType: job.serviceType,
+      companyName,
+      jobNumber: job.jobNumber,
+      callbackNumber
+    });
+    
+    if (result.success) {
+      console.log(`AI call initiated for job ${jobId}: ${result.callId}`);
+      
+      res.json({ 
+        success: true, 
+        callId: result.callId,
+        message: "AI is calling the customer now"
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        message: result.error || "Failed to initiate call"
+      });
+    }
+  });
+
+  app.get("/api/calls/:callId", async (req, res) => {
+    const { getCallDetails } = await import('./blandAiService');
+    const details = await getCallDetails(req.params.callId);
+    
+    if (!details) {
+      return res.status(404).json({ message: "Call not found" });
+    }
+    
+    res.json(details);
+  });
+
   // --- Admin: Orphan Cleanup ---
   app.post("/api/admin/cleanup", strictRateLimiter, async (req, res) => {
     try {
