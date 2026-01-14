@@ -153,6 +153,28 @@ export async function registerRoutes(
     }
   });
 
+  // Job Photos
+  app.get(api.jobPhotos.list.path, async (req, res) => {
+    const photos = await storage.getJobPhotos(Number(req.params.jobId));
+    res.json(photos);
+  });
+
+  app.post(api.jobPhotos.create.path, async (req, res) => {
+    try {
+      const input = api.jobPhotos.create.input.parse(req.body);
+      const photo = await storage.createJobPhoto({
+        ...input,
+        jobId: Number(req.params.jobId),
+      });
+      res.status(201).json(photo);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
   // Seed Data Function (called once if DB empty)
   await seedDatabase();
 

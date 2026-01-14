@@ -176,6 +176,24 @@ export const api = {
         400: errorSchemas.validation,
       },
     }
+  },
+  jobPhotos: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/jobs/:jobId/photos',
+      responses: {
+        200: z.array(z.custom<typeof jobPhotos.$inferSelect>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/jobs/:jobId/photos',
+      input: insertJobPhotoSchema.omit({ jobId: true }),
+      responses: {
+        201: z.custom<typeof jobPhotos.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    }
   }
 };
 

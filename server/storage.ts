@@ -29,6 +29,10 @@ export interface IStorage extends IAuthStorage {
   // Parts
   getParts(): Promise<Part[]>;
   createPart(part: InsertPart): Promise<Part>;
+
+  // Job Photos
+  getJobPhotos(jobId: number): Promise<JobPhoto[]>;
+  createJobPhoto(photo: InsertJobPhoto): Promise<JobPhoto>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -132,6 +136,16 @@ export class DatabaseStorage implements IStorage {
   async createPart(part: InsertPart): Promise<Part> {
     const [newPart] = await db.insert(partsInventory).values(part).returning();
     return newPart;
+  }
+
+  // Job Photos
+  async getJobPhotos(jobId: number): Promise<JobPhoto[]> {
+    return await db.select().from(jobPhotos).where(eq(jobPhotos.jobId, jobId)).orderBy(desc(jobPhotos.uploadedAt));
+  }
+
+  async createJobPhoto(photo: InsertJobPhoto): Promise<JobPhoto> {
+    const [newPhoto] = await db.insert(jobPhotos).values(photo).returning();
+    return newPhoto;
   }
 }
 
