@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { createTenantStorage, ITenantStorage } from "./tenantStorage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { registerChatRoutes } from "./replit_integrations/chat";
 import { registerImageRoutes } from "./replit_integrations/image";
@@ -836,10 +836,7 @@ export async function registerRoutes(
   // --- Tenant Management (Multi-tenancy) ---
   
   // Get current tenant info
-  app.get("/api/tenants/current", async (req, res) => {
-    if (!req.tenant) {
-      return res.status(404).json({ message: "No tenant context" });
-    }
+  app.get("/api/tenants/current", isAuthenticated, requireTenant, async (req, res) => {
     res.json(req.tenant);
   });
 
@@ -935,6 +932,27 @@ export async function registerRoutes(
 }
 
 async function seedDatabase() {
+  // Ensure default tenant exists
+  const { TenantService } = await import("./tenantStorage");
+  const existingTenant = await TenantService.getTenant(DEFAULT_TENANT_ID);
+  if (!existingTenant) {
+    console.log("Creating default tenant...");
+    // Insert directly with SQL to set specific id
+    const { tenants } = await import("@shared/models/auth");
+    await db.insert(tenants).values({
+      id: DEFAULT_TENANT_ID,
+      companyName: "Demo Company",
+      slug: "demo",
+      email: "demo@fieldtech.app",
+      planTier: "free",
+      status: "active",
+      settings: {
+        timezone: "America/New_York",
+        serviceTypes: ["hvac_repair", "plumbing_repair", "electrical_repair"]
+      }
+    }).onConflictDoNothing();
+  }
+
   const existingTechs = await storage.getTechnicians();
   if (existingTechs.length === 0) {
     console.log("Seeding database...");
