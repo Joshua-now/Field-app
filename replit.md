@@ -67,7 +67,7 @@ The application uses a **single-database multi-tenancy** model where each contra
 
 1. **Tenants Table** (`shared/models/auth.ts`): Stores company info, settings, and plan tier
 2. **Tenant ID Column**: Every data table has a `tenant_id` column with indexes for performance
-3. **Tenant Context Middleware** (`server/middleware/tenantContext.ts`): Extracts tenant from authenticated user's session
+3. **Tenant Context Middleware** (`server/middleware/tenantContext.ts`): Extracts tenant from authenticated user's session. Handles multiple OIDC session formats (user.id, user.sub, user.claims.sub)
 4. **Tenant-Scoped Storage** (`server/tenantStorage.ts`): Factory that creates storage instances auto-filtering by tenant
 
 ### Data Isolation

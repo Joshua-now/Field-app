@@ -20,14 +20,13 @@ export async function tenantContextMiddleware(
   try {
     const user = req.user as any;
     
-    // OIDC sessions may have ID in either 'id' or 'sub' field
-    const userId = user?.id || user?.sub;
+    // OIDC sessions may have ID in:
+    // - user.id (standard passport)
+    // - user.sub (OIDC standard)
+    // - user.claims.sub (Replit OIDC test harness)
+    const userId = user?.id || user?.sub || user?.claims?.sub;
     
     if (!userId) {
-      // Log for debugging on mutating requests
-      if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
-        console.log(`[TenantContext] No user ID found for ${req.method} ${req.path}. req.user:`, user ? JSON.stringify(user) : 'undefined');
-      }
       return next();
     }
 
@@ -37,13 +36,7 @@ export async function tenantContextMiddleware(
       .where(eq(users.id, userId))
       .limit(1);
 
-    if (!dbUser) {
-      console.warn(`[TenantContext] User ${userId} not found in database`);
-      return next();
-    }
-
-    if (!dbUser.tenantId) {
-      console.warn(`[TenantContext] User ${userId} (${dbUser.email}) has no tenantId`);
+    if (!dbUser || !dbUser.tenantId) {
       return next();
     }
 
