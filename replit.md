@@ -51,11 +51,45 @@ client/           # React frontend application
     lib/          # Utilities and query client setup
 server/           # Express backend
   replit_integrations/  # Modular integrations (auth, chat, image, audio, storage)
+  middleware/     # Express middleware (tenantContext, rateLimiter, errorHandler)
+  tenantStorage.ts # Tenant-scoped storage factory
 shared/           # Shared types, schemas, and route definitions
-  models/         # Database model definitions
+  models/         # Database model definitions (including tenants)
   schema.ts       # Drizzle table definitions
   routes.ts       # API route contracts with Zod validation
 ```
+
+## Multi-Tenancy Architecture
+
+The application uses a **single-database multi-tenancy** model where each contractor company is a tenant with completely isolated data.
+
+### Key Components
+
+1. **Tenants Table** (`shared/models/auth.ts`): Stores company info, settings, and plan tier
+2. **Tenant ID Column**: Every data table has a `tenant_id` column with indexes for performance
+3. **Tenant Context Middleware** (`server/middleware/tenantContext.ts`): Extracts tenant from authenticated user's session
+4. **Tenant-Scoped Storage** (`server/tenantStorage.ts`): Factory that creates storage instances auto-filtering by tenant
+
+### Data Isolation
+
+- All queries are automatically filtered by tenant ID via the `TenantScopedStorage` class
+- Users can only access data belonging to their tenant
+- New records automatically receive the user's tenant ID on creation
+
+### Tenant API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/tenants/current` | GET | Get current user's tenant info |
+| `/api/tenants` | POST | Create new company (signup) |
+| `/api/tenants/current` | PATCH | Update tenant settings |
+
+### Creating a New Tenant
+
+When a user creates a company via `POST /api/tenants`:
+1. A new tenant record is created with company info
+2. The user is assigned to the new tenant as admin
+3. The user's subsequent requests are scoped to this tenant
 
 ## External Dependencies
 

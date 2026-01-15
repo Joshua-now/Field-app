@@ -833,6 +833,98 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  // --- Tenant Management (Multi-tenancy) ---
+  
+  // Get current tenant info
+  app.get("/api/tenants/current", async (req, res) => {
+    if (!req.tenant) {
+      return res.status(404).json({ message: "No tenant context" });
+    }
+    res.json(req.tenant);
+  });
+
+  // Create new tenant (company signup)
+  app.post("/api/tenants", async (req, res) => {
+    const user = req.user as any;
+    if (!user?.id) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const tenantSchema = z.object({
+      companyName: z.string().min(1, "Company name is required"),
+      slug: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase letters, numbers, and dashes only"),
+      contactEmail: z.string().email(),
+      contactPhone: z.string().optional(),
+      timezone: z.string().default("America/New_York"),
+      serviceTypes: z.array(z.string()).default(["hvac_repair", "plumbing_repair", "electrical_repair"])
+    });
+
+    try {
+      const input = tenantSchema.parse(req.body);
+      
+      // Check if slug is already taken
+      const { TenantService } = await import("./tenantStorage");
+      const existingTenant = await TenantService.getTenantBySlug(input.slug);
+      if (existingTenant) {
+        return res.status(409).json({ message: "Company slug already exists. Please choose a different one." });
+      }
+
+      // Create new tenant
+      const tenant = await TenantService.createTenant({
+        companyName: input.companyName,
+        slug: input.slug,
+        email: input.contactEmail,
+        phone: input.contactPhone || null,
+        planTier: "free",
+        status: "active",
+        settings: {
+          timezone: input.timezone,
+          serviceTypes: input.serviceTypes
+        }
+      });
+
+      // Update the user's tenant association
+      const { db } = await import("./db");
+      const { users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await db.update(users)
+        .set({ tenantId: tenant.id, role: "admin" })
+        .where(eq(users.id, user.id));
+
+      res.status(201).json({ 
+        message: "Company created successfully",
+        tenant 
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  // Update tenant settings
+  app.patch("/api/tenants/current", requireTenant, async (req, res) => {
+    const updateSchema = z.object({
+      companyName: z.string().min(1).optional(),
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      settings: z.record(z.any()).optional()
+    });
+
+    try {
+      const input = updateSchema.parse(req.body);
+      const { TenantService } = await import("./tenantStorage");
+      const updated = await TenantService.updateTenant(req.tenantId!, input);
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
   // Seed Data Function (called once if DB empty)
   await seedDatabase();
 
