@@ -22,6 +22,12 @@ async function initStripe() {
     return;
   }
 
+  // Skip Stripe sync if not on Replit (Railway, etc.)
+  if (!process.env.REPLIT_DOMAINS) {
+    console.log('Not running on Replit, skipping Stripe sync (Stripe features disabled)');
+    return;
+  }
+
   try {
     console.log('Initializing Stripe schema...');
     await runMigrations({ databaseUrl });
