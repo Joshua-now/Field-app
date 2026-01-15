@@ -24,8 +24,8 @@ export interface IStorage extends IAuthStorage {
   deleteCustomer(id: number): Promise<boolean>;
 
   // Jobs
-  getJobs(filters?: { date?: string; technicianId?: number; status?: string; customerId?: number }): Promise<(Job & { customer: Customer; technician: Technician | null })[]>;
-  getJob(id: number): Promise<(Job & { customer: Customer; technician: Technician | null }) | undefined>;
+  getJobs(filters?: { date?: string; technicianId?: number; status?: string; customerId?: number; tenantId?: string }): Promise<(Job & { customer: Customer | null; technician: Technician | null })[]>;
+  getJob(id: number): Promise<(Job & { customer: Customer | null; technician: Technician | null }) | undefined>;
   createJob(job: InsertJob): Promise<Job>;
   updateJob(id: number, job: Partial<InsertJob>): Promise<Job>;
   deleteJob(id: number): Promise<boolean>;
@@ -148,12 +148,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Jobs
-  async getJobs(filters?: { date?: string; technicianId?: number; status?: string; customerId?: number }): Promise<(Job & { customer: Customer; technician: Technician | null })[]> {
+  async getJobs(filters?: { date?: string; technicianId?: number; status?: string; customerId?: number; tenantId?: string }): Promise<(Job & { customer: Customer | null; technician: Technician | null })[]> {
     const conditions = [];
     if (filters?.date) conditions.push(eq(jobs.scheduledDate, filters.date));
     if (filters?.technicianId) conditions.push(eq(jobs.technicianId, filters.technicianId));
     if (filters?.status) conditions.push(eq(jobs.status, filters.status));
     if (filters?.customerId) conditions.push(eq(jobs.customerId, filters.customerId));
+    if (filters?.tenantId) conditions.push(eq(jobs.tenantId, filters.tenantId));
 
     const result = await db.query.jobs.findMany({
       where: conditions.length ? and(...conditions) : undefined,
@@ -163,10 +164,10 @@ export class DatabaseStorage implements IStorage {
       },
       orderBy: [desc(jobs.scheduledDate), desc(jobs.scheduledTimeStart)]
     });
-    return result;
+    return result as (Job & { customer: Customer | null; technician: Technician | null })[];
   }
 
-  async getJob(id: number): Promise<(Job & { customer: Customer; technician: Technician | null }) | undefined> {
+  async getJob(id: number): Promise<(Job & { customer: Customer | null; technician: Technician | null }) | undefined> {
     const result = await db.query.jobs.findFirst({
       where: eq(jobs.id, id),
       with: {
@@ -174,7 +175,7 @@ export class DatabaseStorage implements IStorage {
         technician: true
       }
     });
-    return result;
+    return result as (Job & { customer: Customer | null; technician: Technician | null }) | undefined;
   }
 
   async createJob(job: InsertJob): Promise<Job> {
@@ -302,6 +303,7 @@ export class DatabaseStorage implements IStorage {
     
     for (const item of items) {
       const newItem = await this.createJobChecklistItem({
+        tenantId: template.tenantId,
         jobId,
         checklistId: template.id,
         stepNumber: item.step,
@@ -330,10 +332,10 @@ export class DatabaseStorage implements IStorage {
     const jobIds = new Set(allJobs.map(j => j.id));
     
     const allPhotos = await db.select().from(jobPhotos);
-    const orphanedPhotoIds = allPhotos.filter(p => !jobIds.has(p.jobId)).map(p => p.id);
+    const orphanedPhotoIds = allPhotos.filter(p => p.jobId === null || !jobIds.has(p.jobId)).map(p => p.id);
     
     const allNotes = await db.select().from(jobNotes);
-    const orphanedNoteIds = allNotes.filter(n => !jobIds.has(n.jobId)).map(n => n.id);
+    const orphanedNoteIds = allNotes.filter(n => n.jobId === null || !jobIds.has(n.jobId)).map(n => n.id);
     
     for (const id of orphanedPhotoIds) {
       await db.delete(jobPhotos).where(eq(jobPhotos.id, id));

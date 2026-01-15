@@ -1,10 +1,12 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, decimal, date, time, varchar, point } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, decimal, date, time, varchar, point, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export * from "./models/auth";
 export * from "./models/chat";
+
+import { tenants } from "./models/auth";
 
 // --- Users (Office Staff) ---
 // Note: 'users' table is already defined in ./models/auth.ts, but we need to extend it or ensure it has necessary fields.
@@ -20,7 +22,8 @@ export * from "./models/chat";
 // --- Technicians ---
 export const technicians = pgTable("technicians", {
   id: serial("id").primaryKey(),
-  email: text("email").unique().notNull(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(), // For simple PIN/password login on mobile
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -34,7 +37,9 @@ export const technicians = pgTable("technicians", {
   lastLocationUpdate: timestamp("last_location_update"),
   profilePhotoUrl: text("profile_photo_url"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_technicians_tenant").on(table.tenantId),
+]);
 
 export const techniciansRelations = relations(technicians, ({ many }) => ({
   jobs: many(jobs),
@@ -44,6 +49,7 @@ export const techniciansRelations = relations(technicians, ({ many }) => ({
 // --- Customers ---
 export const customers = pgTable("customers", {
   id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   email: text("email"),
@@ -52,7 +58,6 @@ export const customers = pgTable("customers", {
   addressCity: text("address_city"),
   addressState: text("address_state"),
   addressZip: text("address_zip"),
-  // PostGIS point not strictly supported in standard drizzle-orm/pg-core without extensions, using lat/lng columns for simplicity or jsonb
   addressLat: decimal("address_lat", { precision: 10, scale: 8 }),
   addressLng: decimal("address_lng", { precision: 11, scale: 8 }),
   gateCode: text("gate_code"),
@@ -67,7 +72,9 @@ export const customers = pgTable("customers", {
   gohighlevelId: text("gohighlevel_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_customers_tenant").on(table.tenantId),
+]);
 
 export const customersRelations = relations(customers, ({ many }) => ({
   jobs: many(jobs),
@@ -76,7 +83,8 @@ export const customersRelations = relations(customers, ({ many }) => ({
 // --- Jobs ---
 export const jobs = pgTable("jobs", {
   id: serial("id").primaryKey(),
-  jobNumber: text("job_number").unique().notNull(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  jobNumber: text("job_number").notNull(),
   customerId: integer("customer_id").references(() => customers.id),
   technicianId: integer("technician_id").references(() => technicians.id),
   
@@ -85,12 +93,12 @@ export const jobs = pgTable("jobs", {
   scheduledTimeEnd: time("scheduled_time_end"),
   estimatedDurationMinutes: integer("estimated_duration_minutes").default(60),
   
-  serviceType: text("service_type").notNull(), // hvac_repair, etc
-  priority: text("priority").default("normal"), // urgent, normal, routine
+  serviceType: text("service_type").notNull(),
+  priority: text("priority").default("normal"),
   description: text("description"),
   specialInstructions: text("special_instructions"),
   
-  status: text("status").default("scheduled"), // scheduled, assigned, en_route, arrived, in_progress, completed, cancelled, no_show
+  status: text("status").default("scheduled"),
   statusUpdatedAt: timestamp("status_updated_at"),
   
   assignedAt: timestamp("assigned_at"),
@@ -101,7 +109,7 @@ export const jobs = pgTable("jobs", {
   
   actualDurationMinutes: integer("actual_duration_minutes"),
   workPerformed: text("work_performed"),
-  partsUsed: jsonb("parts_used"), // [{"part_id": 1, "qty": 2}]
+  partsUsed: jsonb("parts_used"),
   totalCost: decimal("total_cost", { precision: 10, scale: 2 }),
   customerSignatureUrl: text("customer_signature_url"),
   customerRating: integer("customer_rating"),
@@ -117,7 +125,10 @@ export const jobs = pgTable("jobs", {
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_jobs_tenant").on(table.tenantId),
+  index("idx_jobs_tenant_date").on(table.tenantId, table.scheduledDate),
+]);
 
 export const jobsRelations = relations(jobs, ({ one, many }) => ({
   customer: one(customers, {
@@ -135,16 +146,19 @@ export const jobsRelations = relations(jobs, ({ one, many }) => ({
 // --- Job Photos ---
 export const jobPhotos = pgTable("job_photos", {
   id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
   jobId: integer("job_id").references(() => jobs.id),
   technicianId: integer("technician_id").references(() => technicians.id),
   photoUrl: text("photo_url").notNull(),
   thumbnailUrl: text("thumbnail_url"),
-  category: text("category").default("during"), // before, during, after
+  category: text("category").default("during"),
   caption: text("caption"),
   gpsLatitude: decimal("gps_latitude", { precision: 10, scale: 8 }),
   gpsLongitude: decimal("gps_longitude", { precision: 11, scale: 8 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_job_photos_tenant").on(table.tenantId),
+]);
 
 export const jobPhotosRelations = relations(jobPhotos, ({ one }) => ({
   job: one(jobs, {
@@ -156,14 +170,16 @@ export const jobPhotosRelations = relations(jobPhotos, ({ one }) => ({
 // --- Job Notes ---
 export const jobNotes = pgTable("job_notes", {
   id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
   jobId: integer("job_id").references(() => jobs.id),
-  // userId: integer("user_id"), // Refers to office user (string ID in auth table)
   technicianId: integer("technician_id").references(() => technicians.id),
   noteType: text("note_type").default("general"),
   noteText: text("note_text").notNull(),
   isInternal: boolean("is_internal").default(false),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_job_notes_tenant").on(table.tenantId),
+]);
 
 export const jobNotesRelations = relations(jobNotes, ({ one }) => ({
   job: one(jobs, {
@@ -175,6 +191,7 @@ export const jobNotesRelations = relations(jobNotes, ({ one }) => ({
 // --- Technician Schedule ---
 export const technicianSchedule = pgTable("technician_schedule", {
   id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
   technicianId: integer("technician_id").references(() => technicians.id),
   scheduleDate: date("schedule_date").notNull(),
   isAvailable: boolean("is_available").default(true),
@@ -183,7 +200,9 @@ export const technicianSchedule = pgTable("technician_schedule", {
   unavailableReason: text("unavailable_reason"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_tech_schedule_tenant").on(table.tenantId),
+]);
 
 export const technicianScheduleRelations = relations(technicianSchedule, ({ one }) => ({
   technician: one(technicians, {
@@ -195,15 +214,19 @@ export const technicianScheduleRelations = relations(technicianSchedule, ({ one 
 // --- Job Checklists ---
 export const serviceChecklists = pgTable("service_checklists", {
   id: serial("id").primaryKey(),
-  serviceType: text("service_type").notNull(), // hvac_repair, plumbing_repair, etc.
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  serviceType: text("service_type").notNull(),
   name: text("name").notNull(),
-  items: jsonb("items").notNull(), // [{step: 1, label: "...", required: true}]
+  items: jsonb("items").notNull(),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_service_checklists_tenant").on(table.tenantId),
+]);
 
 export const jobChecklistItems = pgTable("job_checklist_items", {
   id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
   jobId: integer("job_id").references(() => jobs.id),
   checklistId: integer("checklist_id").references(() => serviceChecklists.id),
   stepNumber: integer("step_number").notNull(),
@@ -211,7 +234,9 @@ export const jobChecklistItems = pgTable("job_checklist_items", {
   isCompleted: boolean("is_completed").default(false),
   completedAt: timestamp("completed_at"),
   notes: text("notes"),
-});
+}, (table) => [
+  index("idx_job_checklist_items_tenant").on(table.tenantId),
+]);
 
 export const jobChecklistItemsRelations = relations(jobChecklistItems, ({ one }) => ({
   job: one(jobs, {
@@ -223,7 +248,8 @@ export const jobChecklistItemsRelations = relations(jobChecklistItems, ({ one })
 // --- Parts Inventory ---
 export const partsInventory = pgTable("parts_inventory", {
   id: serial("id").primaryKey(),
-  partNumber: text("part_number").unique(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  partNumber: text("part_number"),
   partName: text("part_name").notNull(),
   description: text("description"),
   category: text("category"),
@@ -232,9 +258,15 @@ export const partsInventory = pgTable("parts_inventory", {
   costPerUnit: decimal("cost_per_unit", { precision: 10, scale: 2 }),
   supplier: text("supplier"),
   isActive: boolean("is_active").default(true),
-});
+}, (table) => [
+  index("idx_parts_inventory_tenant").on(table.tenantId),
+]);
 
 // --- Schemas ---
+// Tenant schema for creating new tenants (signup)
+export const insertTenantSchema = createInsertSchema(tenants).omit({ id: true, createdAt: true, updatedAt: true });
+
+// All other schemas - tenantId is required but will be injected by middleware
 export const insertTechnicianSchema = createInsertSchema(technicians).omit({ id: true, createdAt: true, lastLocationUpdate: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, updatedAt: true, totalJobsCompleted: true, lifetimeValue: true, averageRating: true });
 export const insertJobSchema = createInsertSchema(jobs).omit({ 

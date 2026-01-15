@@ -1,0 +1,84 @@
+I have a field service management app in Replit for HVAC/roofing contractors. It currently works for a single user/company, but I need to convert it to a MULTI-TENANT SaaS application where multiple contractor companies can use it with completely isolated data.
+
+CRITICAL REQUIREMENT: This must use SINGLE DATABASE architecture with tenant_id filtering (like GoHighLevel), NOT separate databases per contractor.
+
+Current situation:
+- App is in Replit using [TELL AI YOUR CURRENT DATABASE TYPE: SQLite/Replit DB/MongoDB/etc]
+- I have PostgreSQL on Railway with DATABASE_URL configured in Replit secrets
+- Ready to migrate data and add multi-tenancy
+
+Architecture Requirements:
+
+1. **Single Database, Shared Tables with Tenant Isolation:**
+   - ONE PostgreSQL database serves ALL contractors
+   - Every data table gets a tenant_id field
+   - ALL queries must automatically filter by tenant_id
+   - Add database constraints to prevent cross-tenant data access
+   - Use indexes on tenant_id for performance
+
+2. **Migrate to PostgreSQL:**
+   - Convert current database to use PostgreSQL (DATABASE_URL already configured)
+   - Create proper schema with tenant_id fields
+   - Migrate any existing data
+   - Use proper PostgreSQL data types and constraints
+
+3. **Analyze Current Structure:**
+   - Identify all existing tables/collections
+   - Map out relationships between data
+   - Determine which tables need tenant_id (all user data tables)
+
+4. **Multi-Tenancy Implementation:**
+   - Create 'tenants' table:
+     * tenant_id (primary key, UUID or auto-increment)
+     * company_name
+     * created_at
+     * status (active/inactive)
+     * plan_tier (if applicable)
+   
+   - Add tenant_id to ALL data tables:
+     * users (with tenant_id foreign key)
+     * jobs (with tenant_id foreign key)
+     * customers (with tenant_id foreign key)
+     * technicians (with tenant_id foreign key)
+     * invoices (with tenant_id foreign key)
+     * [any other tables with customer data]
+   
+   - Create database middleware/helper that:
+     * Automatically adds WHERE tenant_id = [current_tenant] to ALL queries
+     * Prevents any query without tenant_id filter
+     * Validates tenant_id on inserts/updates
+
+5. **Authentication & Session Management:**
+   - Login must capture and store tenant_id in session
+   - Every API request must know current tenant_id
+   - Validate user belongs to tenant on every request
+   - Add tenant context to all database operations
+
+6. **Tenant Onboarding Flow:**
+   - Signup form for new contractor companies
+   - Automatically creates:
+     * New tenant record
+     * Admin user for that tenant
+     * Default settings/data for new tenant
+   - First-login setup wizard (optional)
+
+7. **Data Isolation Testing:**
+   - Create helper functions to test isolation
+   - Provide script to create 2-3 test tenant accounts
+   - Instructions to verify Tenant A cannot see Tenant B's data
+
+8. **Security Checks:**
+   - Database-level foreign key constraints on tenant_id
+   - Row-level security policies (if using PostgreSQL RLS)
+   - Code-level validation that tenant_id matches session
+   - Prevent tenant_id manipulation in API requests
+
+Please provide:
+- Complete database schema with tenant_id fields
+- Migration script from current database to PostgreSQL
+- Code changes file-by-file with before/after examples
+- Middleware/helper functions for tenant filtering
+- Test scripts to verify data isolation
+- Setup instructions for first tenant
+
+Use PostgreSQL best practices: proper indexes, foreign keys, constraints, and consider Row Level Security (RLS) for additional protection.
