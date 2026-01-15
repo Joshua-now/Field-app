@@ -1,6 +1,7 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { createTenantStorage, ITenantStorage } from "./tenantStorage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
@@ -11,6 +12,14 @@ import { registerAudioRoutes } from "./replit_integrations/audio";
 import { validateStatusTransition, JobStatus } from "@shared/jobStateMachine";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiRateLimiter, strictRateLimiter } from "./middleware/rateLimiter";
+import { tenantContextMiddleware, requireTenant } from "./middleware/tenantContext";
+
+const DEFAULT_TENANT_ID = "default-tenant";
+
+function getTenantStorage(req: Request): ITenantStorage {
+  const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+  return createTenantStorage(tenantId);
+}
 
 // Helper to strip sensitive data from technician responses
 function sanitizeTechnician(tech: any) {
@@ -26,6 +35,9 @@ export async function registerRoutes(
   // Setup Auth
   await setupAuth(app);
   registerAuthRoutes(app);
+  
+  // Apply tenant context after auth (extracts tenant from authenticated user)
+  app.use(tenantContextMiddleware);
   
   // Setup Integrations
   registerObjectStorageRoutes(app);
@@ -257,7 +269,8 @@ export async function registerRoutes(
     });
     try {
       const input = checklistSchema.parse(req.body);
-      const checklist = await storage.createServiceChecklist({ ...input, isActive: true });
+      const tenantStore = getTenantStorage(req);
+      const checklist = await tenantStore.createServiceChecklist({ ...input, isActive: true });
       res.status(201).json(checklist);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -836,6 +849,7 @@ async function seedDatabase() {
     
     // Techs
     const tech1 = await storage.createTechnician({
+      tenantId: DEFAULT_TENANT_ID,
       email: "tech1@example.com",
       passwordHash: "1234",
       firstName: "Mike",
@@ -847,6 +861,7 @@ async function seedDatabase() {
     });
     
     const tech2 = await storage.createTechnician({
+      tenantId: DEFAULT_TENANT_ID,
       email: "tech2@example.com",
       passwordHash: "5678",
       firstName: "Sarah",
@@ -857,6 +872,7 @@ async function seedDatabase() {
 
     // Customers
     const cust1 = await storage.createCustomer({
+      tenantId: DEFAULT_TENANT_ID,
       firstName: "Alice",
       lastName: "Smith",
       phone: "555-1001",
@@ -868,6 +884,7 @@ async function seedDatabase() {
     });
 
     const cust2 = await storage.createCustomer({
+      tenantId: DEFAULT_TENANT_ID,
       firstName: "Bob",
       lastName: "Jones",
       phone: "555-1002",
@@ -880,6 +897,7 @@ async function seedDatabase() {
     
     // Jobs
     await storage.createJob({
+      tenantId: DEFAULT_TENANT_ID,
       customerId: cust1.id,
       technicianId: tech1.id,
       scheduledDate: new Date().toISOString().split('T')[0],
@@ -891,6 +909,7 @@ async function seedDatabase() {
     });
     
     await storage.createJob({
+      tenantId: DEFAULT_TENANT_ID,
       customerId: cust2.id,
       technicianId: tech2.id,
       scheduledDate: new Date().toISOString().split('T')[0],
@@ -903,6 +922,7 @@ async function seedDatabase() {
     
     // Service Checklists
     await storage.createServiceChecklist({
+      tenantId: DEFAULT_TENANT_ID,
       serviceType: "hvac_repair",
       name: "HVAC Repair Checklist",
       items: [
@@ -919,6 +939,7 @@ async function seedDatabase() {
     });
 
     await storage.createServiceChecklist({
+      tenantId: DEFAULT_TENANT_ID,
       serviceType: "plumbing_leak",
       name: "Plumbing Leak Repair",
       items: [
@@ -935,6 +956,7 @@ async function seedDatabase() {
     });
 
     await storage.createServiceChecklist({
+      tenantId: DEFAULT_TENANT_ID,
       serviceType: "hvac_maintenance",
       name: "HVAC Preventive Maintenance",
       items: [
@@ -952,6 +974,7 @@ async function seedDatabase() {
 
     // Parts
     await storage.createPart({
+      tenantId: DEFAULT_TENANT_ID,
       partName: "HVAC Filter 20x20x1",
       quantityOnHand: 50,
       costPerUnit: "15.00"

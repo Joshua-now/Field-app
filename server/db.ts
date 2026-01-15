@@ -4,7 +4,7 @@ import * as schema from "@shared/schema";
 
 const { Pool } = pg;
 
-const databaseUrl = process.env.RAILWAY_DATABASE_URL || process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
   throw new Error(
@@ -12,7 +12,7 @@ if (!databaseUrl) {
   );
 }
 
-console.log(`[DB] Using ${process.env.RAILWAY_DATABASE_URL ? 'Railway' : 'Replit'} database`);
+console.log(`[DB] Using Replit database`);
 
 export const pool = new Pool({ 
   connectionString: databaseUrl,
