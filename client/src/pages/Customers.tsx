@@ -9,6 +9,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCustomerSchema } from "@shared/schema";
+import { z } from "zod";
+
+// Client-side schema that omits tenantId (server adds it from session)
+const customerFormSchema = insertCustomerSchema.omit({ tenantId: true });
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 
 export default function Customers() {
@@ -17,8 +21,8 @@ export default function Customers() {
   const createCustomer = useCreateCustomer();
   const [isOpen, setIsOpen] = useState(false);
 
-  const form = useForm({
-    resolver: zodResolver(insertCustomerSchema),
+  const form = useForm<z.infer<typeof customerFormSchema>>({
+    resolver: zodResolver(customerFormSchema),
     defaultValues: {
       firstName: "",
       lastName: "",
@@ -88,7 +92,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Email</FormLabel>
-                        <FormControl><Input type="email" {...field} data-testid="input-customer-email" /></FormControl>
+                        <FormControl><Input type="email" {...field} value={field.value ?? ""} data-testid="input-customer-email" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -111,7 +115,7 @@ export default function Customers() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Street Address</FormLabel>
-                      <FormControl><Input {...field} data-testid="input-customer-street" /></FormControl>
+                      <FormControl><Input {...field} value={field.value ?? ""} data-testid="input-customer-street" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -123,7 +127,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>City</FormLabel>
-                        <FormControl><Input {...field} data-testid="input-customer-city" /></FormControl>
+                        <FormControl><Input {...field} value={field.value ?? ""} data-testid="input-customer-city" /></FormControl>
                       </FormItem>
                     )}
                   />
@@ -133,7 +137,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>State</FormLabel>
-                        <FormControl><Input {...field} data-testid="input-customer-state" /></FormControl>
+                        <FormControl><Input {...field} value={field.value ?? ""} data-testid="input-customer-state" /></FormControl>
                       </FormItem>
                     )}
                   />
@@ -143,7 +147,7 @@ export default function Customers() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Zip</FormLabel>
-                        <FormControl><Input {...field} data-testid="input-customer-zip" /></FormControl>
+                        <FormControl><Input {...field} value={field.value ?? ""} data-testid="input-customer-zip" /></FormControl>
                       </FormItem>
                     )}
                   />

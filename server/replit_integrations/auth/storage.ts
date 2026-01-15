@@ -19,29 +19,43 @@ class AuthStorage implements IAuthStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    // Check if user already exists to preserve their tenantId
-    const existingUser = await this.getUser(userData.id!);
-    
-    // Auto-assign default tenant for new users if not specified
-    const tenantId = existingUser?.tenantId ?? userData.tenantId ?? DEFAULT_TENANT_ID;
-    
-    const [user] = await db
-      .insert(users)
-      .values({
-        ...userData,
-        tenantId,
-      })
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          // Update user info but preserve tenantId if they already have one
+    try {
+      // Check if user already exists to preserve their tenantId
+      const existingUser = await this.getUser(userData.id!);
+      
+      // Auto-assign default tenant for new users if not specified
+      const tenantId = existingUser?.tenantId ?? userData.tenantId ?? DEFAULT_TENANT_ID;
+      
+      const [user] = await db
+        .insert(users)
+        .values({
           ...userData,
-          tenantId: existingUser?.tenantId ?? tenantId,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
+          tenantId,
+        })
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            // Update user info but preserve tenantId if they already have one
+            ...userData,
+            tenantId: existingUser?.tenantId ?? tenantId,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      return user;
+    } catch (error: any) {
+      // Handle duplicate email constraint violation gracefully
+      // This can happen if same email is used with different user IDs
+      if (error.code === '23505' && error.constraint?.includes('email')) {
+        console.warn(`[AuthStorage] Duplicate email constraint for ${userData.email}, looking up existing user`);
+        // Find the existing user by email and return it
+        const [existingByEmail] = await db.select().from(users).where(eq(users.email, userData.email!));
+        if (existingByEmail) {
+          return existingByEmail;
+        }
+      }
+      throw error;
+    }
   }
 }
 

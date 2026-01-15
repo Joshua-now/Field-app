@@ -7,17 +7,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertPartSchema } from "@shared/schema";
+import { z } from "zod";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
+
+// Client-side schema that omits tenantId (server adds it from session)
+const partFormSchema = insertPartSchema.omit({ tenantId: true });
 
 export default function Inventory() {
   const { data: parts, isLoading } = useParts();
   const createPart = useCreatePart();
   const [isOpen, setIsOpen] = useState(false);
 
-  const form = useForm({
-    resolver: zodResolver(insertPartSchema),
+  const form = useForm<z.infer<typeof partFormSchema>>({
+    resolver: zodResolver(partFormSchema),
     defaultValues: {
       partName: "",
       partNumber: "",
@@ -71,7 +75,7 @@ export default function Inventory() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Part Number (SKU)</FormLabel>
-                      <FormControl><Input {...field} data-testid="input-part-number" /></FormControl>
+                      <FormControl><Input {...field} value={field.value ?? ""} data-testid="input-part-number" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -83,7 +87,7 @@ export default function Inventory() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Quantity</FormLabel>
-                        <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} data-testid="input-part-quantity" /></FormControl>
+                        <FormControl><Input type="number" {...field} value={field.value ?? 0} onChange={e => field.onChange(parseInt(e.target.value))} data-testid="input-part-quantity" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -94,7 +98,7 @@ export default function Inventory() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Cost ($)</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} data-testid="input-part-cost" /></FormControl>
+                        <FormControl><Input type="number" step="0.01" {...field} value={field.value ?? ""} data-testid="input-part-cost" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

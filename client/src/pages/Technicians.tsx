@@ -7,17 +7,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTechnicianSchema } from "@shared/schema";
+import { z } from "zod";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
+
+// Client-side schema that omits tenantId (server adds it from session)
+const technicianFormSchema = insertTechnicianSchema.omit({ tenantId: true });
 
 export default function Technicians() {
   const { data: technicians, isLoading } = useTechnicians();
   const createTech = useCreateTechnician();
   const [isOpen, setIsOpen] = useState(false);
 
-  const form = useForm({
-    resolver: zodResolver(insertTechnicianSchema),
+  const form = useForm<z.infer<typeof technicianFormSchema>>({
+    resolver: zodResolver(technicianFormSchema),
     defaultValues: {
       firstName: "",
       lastName: "",

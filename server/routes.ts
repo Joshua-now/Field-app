@@ -16,6 +16,30 @@ import { tenantContextMiddleware, requireTenant } from "./middleware/tenantConte
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
+// Ensure default tenant exists (called before auth setup)
+async function ensureDefaultTenant() {
+  const { TenantService } = await import("./tenantStorage");
+  const existingTenant = await TenantService.getTenant(DEFAULT_TENANT_ID);
+  if (!existingTenant) {
+    console.log("[Startup] Creating default tenant...");
+    const { tenants } = await import("@shared/models/auth");
+    const { db } = await import("./db");
+    await db.insert(tenants).values({
+      id: DEFAULT_TENANT_ID,
+      companyName: "Demo Company",
+      slug: "demo",
+      email: "demo@fieldtech.app",
+      planTier: "free",
+      status: "active",
+      settings: {
+        timezone: "America/New_York",
+        serviceTypes: ["hvac_repair", "plumbing_repair", "electrical_repair"]
+      }
+    }).onConflictDoNothing();
+    console.log("[Startup] Default tenant created");
+  }
+}
+
 function getTenantStorage(req: Request): ITenantStorage {
   const tenantId = req.tenantId || DEFAULT_TENANT_ID;
   return createTenantStorage(tenantId);
@@ -32,6 +56,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Ensure default tenant exists BEFORE auth (so new users can be assigned)
+  await ensureDefaultTenant();
+  
   // Setup Auth
   await setupAuth(app);
   registerAuthRoutes(app);
@@ -620,10 +647,14 @@ export async function registerRoutes(
     res.json(sanitizeTechnician(tech));
   });
 
-  app.post(api.technicians.create.path, async (req, res) => {
+  app.post(api.technicians.create.path, isAuthenticated, requireTenant, async (req, res) => {
     try {
-      const input = api.technicians.create.input.parse(req.body);
-      const tech = await storage.createTechnician(input);
+      // Parse input without tenantId (client doesn't send it)
+      const clientInput = api.technicians.create.input.omit({ tenantId: true }).parse(req.body);
+      // Add tenantId from authenticated user's context
+      const input = { ...clientInput, tenantId: req.tenantId! };
+      const tenantStorage = getTenantStorage(req);
+      const tech = await tenantStorage.createTechnician(input);
       res.status(201).json(sanitizeTechnician(tech));
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -678,10 +709,14 @@ export async function registerRoutes(
     res.json(customer);
   });
 
-  app.post(api.customers.create.path, async (req, res) => {
+  app.post(api.customers.create.path, isAuthenticated, requireTenant, async (req, res) => {
     try {
-      const input = api.customers.create.input.parse(req.body);
-      const customer = await storage.createCustomer(input);
+      // Parse input without tenantId (client doesn't send it)
+      const clientInput = api.customers.create.input.omit({ tenantId: true }).parse(req.body);
+      // Add tenantId from authenticated user's context
+      const input = { ...clientInput, tenantId: req.tenantId! };
+      const tenantStorage = getTenantStorage(req);
+      const customer = await tenantStorage.createCustomer(input);
       res.status(201).json(customer);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -736,10 +771,14 @@ export async function registerRoutes(
     });
   });
 
-  app.post(api.jobs.create.path, async (req, res) => {
+  app.post(api.jobs.create.path, isAuthenticated, requireTenant, async (req, res) => {
     try {
-      const input = api.jobs.create.input.parse(req.body);
-      const job = await storage.createJob(input);
+      // Parse input without tenantId (client doesn't send it)
+      const clientInput = api.jobs.create.input.omit({ tenantId: true }).parse(req.body);
+      // Add tenantId from authenticated user's context
+      const input = { ...clientInput, tenantId: req.tenantId! };
+      const tenantStorage = getTenantStorage(req);
+      const job = await tenantStorage.createJob(input);
       res.status(201).json(job);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -792,10 +831,14 @@ export async function registerRoutes(
     res.json(parts);
   });
   
-  app.post(api.parts.create.path, async (req, res) => {
+  app.post(api.parts.create.path, isAuthenticated, requireTenant, async (req, res) => {
     try {
-      const input = api.parts.create.input.parse(req.body);
-      const part = await storage.createPart(input);
+      // Parse input without tenantId (client doesn't send it)
+      const clientInput = api.parts.create.input.omit({ tenantId: true }).parse(req.body);
+      // Add tenantId from authenticated user's context
+      const input = { ...clientInput, tenantId: req.tenantId! };
+      const tenantStorage = getTenantStorage(req);
+      const part = await tenantStorage.createPart(input);
       res.status(201).json(part);
     } catch (err) {
       if (err instanceof z.ZodError) {
