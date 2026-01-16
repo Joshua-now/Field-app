@@ -65,6 +65,10 @@ export async function setupAuth(app: Express) {
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+if (!process.env.REPL_ID) {
+  console.warn("REPL_ID missing; skipping Replit OIDC auth setup");
+  return;
+}
 
   const config = await getOidcConfig();
 
