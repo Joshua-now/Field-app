@@ -19,6 +19,7 @@ export default defineConfig({
         ]
       : []),
   ],
+
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -26,11 +27,16 @@ export default defineConfig({
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
   },
+
+  // client app root
   root: path.resolve(import.meta.dirname, "client"),
+
+  // ✅ IMPORTANT: build to project-root dist/client (not client/dist/...)
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: "../dist/client",
     emptyOutDir: true,
   },
+
   server: {
     fs: {
       strict: true,
