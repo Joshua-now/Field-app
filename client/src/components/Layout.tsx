@@ -7,7 +7,6 @@ import {
   Users, 
   Contact, 
   Package, 
-  MapPin,
   LogOut,
   Menu,
   X
@@ -26,7 +25,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
     { name: "Schedule", href: "/schedule", icon: CalendarDays },
     { name: "Jobs", href: "/jobs", icon: Briefcase },
-    { name: "Live Map", href: "/live-map", icon: MapPin },
     { name: "Technicians", href: "/technicians", icon: Users },
     { name: "Customers", href: "/customers", icon: Contact },
     { name: "Inventory", href: "/inventory", icon: Package },

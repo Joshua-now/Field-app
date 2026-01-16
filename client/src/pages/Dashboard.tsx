@@ -9,7 +9,7 @@ import {
   CheckCircle2, 
   Clock, 
   TrendingUp,
-  MapPin
+  Wrench
 } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
@@ -239,9 +239,9 @@ export default function Dashboard() {
                   <h4 className="font-semibold text-sm" data-testid={`text-tech-name-${tech.id}`}>{tech.firstName} {tech.lastName}</h4>
                   <p className="text-xs text-muted-foreground mb-2">{tech.phone}</p>
                   <div className="flex items-center text-xs text-muted-foreground gap-1">
-                    <MapPin className="w-3 h-3" />
-                    <span data-testid={`text-tech-location-${tech.id}`}>
-                      {tech.currentLocationLat ? "Location Active" : "No Location Data"}
+                    <Wrench className="w-3 h-3" />
+                    <span data-testid={`text-tech-specialties-${tech.id}`}>
+                      {tech.specialties?.join(", ") || "General"}
                     </span>
                   </div>
                 </div>

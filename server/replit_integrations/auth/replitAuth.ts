@@ -21,21 +21,33 @@ const getOidcConfig = memoize(
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
+  const isRailwayEnvironment = !!process.env.RAILWAY_ENVIRONMENT;
+  const dbUrl = isRailwayEnvironment 
+    ? (process.env.RAILWAY_DATABASE_URL || process.env.DATABASE_URL)
+    : process.env.DATABASE_URL;
+  
   const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
+    conString: dbUrl,
     createTableIfMissing: false,
     ttl: sessionTtl,
     tableName: "sessions",
   });
+  
+  const isProduction = process.env.NODE_ENV === 'production';
+  
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
+    name: 'fieldtech.sid',
+    rolling: true,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: isProduction,
+      sameSite: 'lax',
       maxAge: sessionTtl,
+      path: '/',
     },
   });
 }

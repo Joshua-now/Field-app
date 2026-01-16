@@ -13,6 +13,9 @@ import { validateStatusTransition, JobStatus } from "@shared/jobStateMachine";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiRateLimiter, strictRateLimiter } from "./middleware/rateLimiter";
 import { tenantContextMiddleware, requireTenant } from "./middleware/tenantContext";
+import { db, getHealthStatus } from "./db";
+import { securityHeaders, requestIdMiddleware } from "./middleware/security";
+import { auditLogMiddleware } from "./middleware/auditLog";
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
@@ -56,6 +59,31 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Security headers (XSS, clickjacking, MIME sniffing protection)
+  app.use(securityHeaders);
+  app.use(requestIdMiddleware);
+  app.use(auditLogMiddleware);
+
+  // Health check endpoint (before auth - public)
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const health = await getHealthStatus();
+      const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
+      res.status(statusCode).json({
+        ...health,
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version || "1.0.0",
+      });
+    } catch (error) {
+      res.status(503).json({
+        status: 'unhealthy',
+        database: false,
+        error: 'Health check failed',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   // Ensure default tenant exists BEFORE auth (so new users can be assigned)
   await ensureDefaultTenant();
   
@@ -446,125 +474,6 @@ export async function registerRoutes(
     res.json(response);
   });
 
-  // --- Invoice & Payments ---
-  app.post("/api/jobs/:id/invoice", async (req, res) => {
-    const invoiceSchema = z.object({
-      lineItems: z.array(z.object({
-        description: z.string().min(1),
-        amount: z.number().positive()
-      })).min(1),
-      sendEmail: z.boolean().optional().default(true)
-    });
-    
-    let input;
-    try {
-      input = invoiceSchema.parse(req.body);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
-    
-    const { stripeService } = await import('./stripeService');
-    const jobId = Number(req.params.id);
-    const job = await storage.getJob(jobId);
-    if (!job) return res.status(404).json({ message: "Job not found" });
-    if (!job.customer) return res.status(400).json({ message: "Job has no customer" });
-    
-    if (job.invoiceId) {
-      return res.status(409).json({ message: "Job already has an invoice" });
-    }
-    
-    const { lineItems, sendEmail } = input;
-    
-    try {
-      if (!job.customer.email) {
-        return res.status(400).json({ message: "Customer email required for invoicing" });
-      }
-      const customer = await stripeService.getOrCreateCustomer(
-        job.customer.email,
-        `${job.customer.firstName} ${job.customer.lastName}`,
-        job.customer.phone || undefined
-      );
-      
-      const invoice = await stripeService.createJobInvoice(
-        customer.id,
-        job.id,
-        job.jobNumber,
-        lineItems
-      );
-      
-      if (sendEmail) {
-        await stripeService.sendInvoice(invoice.id);
-      }
-      
-      await storage.updateJob(jobId, { 
-        invoiceId: invoice.id,
-        paymentStatus: 'invoiced' as any
-      });
-      
-      res.json({ 
-        invoiceId: invoice.id,
-        invoiceUrl: invoice.hosted_invoice_url,
-        status: invoice.status
-      });
-    } catch (err: any) {
-      console.error('Invoice creation error:', err);
-      res.status(500).json({ message: err.message || "Failed to create invoice" });
-    }
-  });
-
-  app.post("/api/jobs/:id/payment-link", async (req, res) => {
-    const { stripeService } = await import('./stripeService');
-    const jobId = Number(req.params.id);
-    const job = await storage.getJob(jobId);
-    if (!job) return res.status(404).json({ message: "Job not found" });
-    if (!job.customer) return res.status(400).json({ message: "Job has no customer" });
-    
-    const { amount, description } = req.body;
-    if (typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ message: "Valid amount required" });
-    }
-    
-    try {
-      if (!job.customer.email) {
-        return res.status(400).json({ message: "Customer email required for payment" });
-      }
-      const customer = await stripeService.getOrCreateCustomer(
-        job.customer.email,
-        `${job.customer.firstName} ${job.customer.lastName}`,
-        job.customer.phone || undefined
-      );
-      
-      const session = await stripeService.createQuickPaymentLink(
-        customer.id,
-        amount,
-        description || `Service for ${job.jobNumber}`,
-        job.id,
-        job.jobNumber
-      );
-      
-      res.json({ 
-        paymentUrl: session.url,
-        sessionId: session.id
-      });
-    } catch (err: any) {
-      console.error('Payment link error:', err);
-      res.status(500).json({ message: err.message || "Failed to create payment link" });
-    }
-  });
-
-  app.get("/api/stripe/publishable-key", async (req, res) => {
-    try {
-      const { getStripePublishableKey } = await import('./stripeClient');
-      const key = await getStripePublishableKey();
-      res.json({ publishableKey: key });
-    } catch (err) {
-      res.status(500).json({ message: "Stripe not configured" });
-    }
-  });
-
   // --- AI Voice Calling (Bland AI) ---
   app.post("/api/jobs/:id/customer-not-home", async (req, res) => {
     const jobId = Number(req.params.id);
@@ -674,25 +583,6 @@ export async function registerRoutes(
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
-      throw err;
-    }
-  });
-
-  // Technician Location Update (for mobile GPS tracking)
-  app.post("/api/technicians/:id/location", async (req, res) => {
-    try {
-      const { latitude, longitude } = req.body;
-      if (typeof latitude !== "number" || typeof longitude !== "number") {
-        return res.status(400).json({ message: "Invalid coordinates" });
-      }
-      const tech = await storage.updateTechnicianLocation(
-        Number(req.params.id),
-        latitude,
-        longitude
-      );
-      if (!tech) return res.status(404).json({ message: "Technician not found" });
-      res.json({ success: true, lastUpdate: tech.lastLocationUpdate });
-    } catch (err) {
       throw err;
     }
   });

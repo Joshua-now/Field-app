@@ -2,9 +2,17 @@
 
 ## Overview
 
-FieldTech is a contractor field technician management system designed for HVAC and service contractors. It provides a desktop web dashboard for office/dispatch staff to manage jobs, technicians, customers, and inventory. The system enables job scheduling, technician tracking, customer management, and parts inventory control.
+FieldTech is a contractor field technician management system designed for HVAC and service contractors. It provides a **desktop web dashboard** for office/dispatch staff to manage jobs, technicians, customers, and inventory. The system enables job scheduling, technician assignment, customer management, and parts inventory control.
 
-The application follows a full-stack TypeScript architecture with a React frontend and Express backend, using PostgreSQL for data persistence.
+The application follows a full-stack TypeScript architecture with a React frontend and Express backend, using PostgreSQL for data persistence. Designed for **Railway deployment** via GitHub.
+
+## Recent Changes (January 2026)
+
+- Removed Stripe payment integration (payments handled externally)
+- Removed GPS/location tracking features
+- Removed mobile-specific pages and PWA features (desktop-only web app)
+- Fixed database connection logic for Railway vs Replit environments
+- Enhanced OIDC authentication to handle multiple session formats
 
 ## User Preferences
 
@@ -35,11 +43,10 @@ Preferred communication style: Simple, everyday language.
 - **Migrations**: Drizzle Kit for schema management (`drizzle-kit push`)
 - **Session Storage**: PostgreSQL-backed sessions via `connect-pg-simple`
 
-### Key Design Patterns
-- **Shared Types**: The `shared/` directory contains schema definitions and route contracts used by both frontend and backend
-- **API Contract**: Routes are defined with Zod schemas for input validation and response typing in `shared/routes.ts`
-- **Storage Layer**: `server/storage.ts` provides a database abstraction layer implementing the `IStorage` interface
-- **Replit Integrations**: Modular integration system in `server/replit_integrations/` for auth, chat, image generation, audio, and object storage
+### Database Connection Logic
+The app intelligently selects the database based on environment:
+- **Replit**: Uses `DATABASE_URL` (Neon-backed Replit PostgreSQL)
+- **Railway**: Uses `RAILWAY_DATABASE_URL` when `RAILWAY_ENVIRONMENT` is set
 
 ### Project Structure
 ```
@@ -51,7 +58,7 @@ client/           # React frontend application
     lib/          # Utilities and query client setup
 server/           # Express backend
   replit_integrations/  # Modular integrations (auth, chat, image, audio, storage)
-  middleware/     # Express middleware (tenantContext, rateLimiter, errorHandler)
+  middleware/     # Express middleware (tenantContext, rateLimiter, errorHandler, security, auditLog)
   tenantStorage.ts # Tenant-scoped storage factory
 shared/           # Shared types, schemas, and route definitions
   models/         # Database model definitions (including tenants)
@@ -84,13 +91,6 @@ The application uses a **single-database multi-tenancy** model where each contra
 | `/api/tenants` | POST | Create new company (signup) |
 | `/api/tenants/current` | PATCH | Update tenant settings |
 
-### Creating a New Tenant
-
-When a user creates a company via `POST /api/tenants`:
-1. A new tenant record is created with company info
-2. The user is assigned to the new tenant as admin
-3. The user's subsequent requests are scoped to this tenant
-
 ## External Dependencies
 
 ### Database
@@ -105,12 +105,10 @@ When a user creates a company via `POST /api/tenants`:
 - **OpenAI API**: Used for chat, image generation, and audio features
 - Required environment variables: `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL`
 
-### Payments
-- **Stripe**: Payment processing for job invoices
-- Integration via Replit's Stripe connector with automatic webhook management
-- Uses Stripe Invoices for job billing (not product catalog to avoid catalog pollution)
-- Key files: `server/stripeClient.ts`, `server/stripeService.ts`, `server/webhookHandlers.ts`
-- Invoice endpoints: `POST /api/jobs/:id/invoice`, `POST /api/jobs/:id/payment-link`
+### AI Voice Calling (Bland AI) - Optional
+- **Bland AI**: Automated customer calling when technician arrives and customer isn't home
+- Environment variables: `BLAND_AI_API_KEY`, `SUPPORT_PHONE`
+- Endpoint: `POST /api/jobs/:id/customer-not-home`
 
 ### File Storage
 - **Google Cloud Storage**: Object storage for file uploads (photos, documents)
@@ -122,6 +120,26 @@ When a user creates a company via `POST /api/tenants`:
 - **recharts**: Dashboard charts and analytics
 - **date-fns**: Date formatting and manipulation
 - **Radix UI**: Accessible UI primitives for shadcn/ui components
+
+## Security Features
+
+### Security Headers (Helmet)
+- XSS protection, clickjacking prevention, MIME sniffing protection
+- Configured in `server/middleware/security.ts`
+
+### Rate Limiting
+- Global API rate limit: 100 requests/minute per IP
+- Strict limit for admin endpoints: 10 requests/minute
+- Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+
+### Audit Logging
+- All API requests logged with user, IP, method, path, and status
+- Middleware: `server/middleware/auditLog.ts`
+
+### Session Security
+- httpOnly, secure, sameSite cookies
+- Rolling sessions for extended activity
+- PostgreSQL-backed session storage
 
 ## Guardrails & Self-Repair
 
@@ -135,12 +153,6 @@ When a user creates a company via `POST /api/tenants`:
 - Applied to customer create/update operations
 - Features: trim strings, lowercase emails, normalize phone/zip, strip script tags
 
-### Rate Limiting
-- Global API rate limit: 100 requests/minute per IP
-- Strict limit for admin endpoints: 10 requests/minute
-- Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
-- Middleware: `server/middleware/rateLimiter.ts`
-
 ### Error Handling
 - Centralized error handler in `server/middleware/errorHandler.ts`
 - Custom error classes: `AppError`, `ValidationError`, `NotFoundError`, `ConflictError`
@@ -150,7 +162,7 @@ When a user creates a company via `POST /api/tenants`:
 ### Database Resilience
 - Connection pool with 20 max connections
 - 30-second idle timeout, 10-second connection timeout
-- Pool error and connect event logging
+- Self-healing reconnection on connection failures
 - Health check endpoint: `GET /api/health` (returns DB status)
 
 ### Self-Repair: Orphan Cleanup
@@ -158,84 +170,35 @@ When a user creates a company via `POST /api/tenants`:
 - Removes orphaned photos and notes not linked to existing jobs
 - Returns count of cleaned records
 
-## Progressive Web App (PWA)
+## Desktop Web Application
 
-The application is configured as a PWA for mobile installation:
-- **Manifest**: `client/public/manifest.json` defines app name, icons, and shortcuts
-- **Service Worker**: `client/public/sw.js` provides offline caching and mutation queuing
-- **Install**: Users can add to home screen on iOS/Android for app-like experience
-- **Offline Support**: 
-  - Cached API responses available when offline
-  - JSON mutations (status updates, notes) queued in IndexedDB for sync when online
-  - Photo uploads require connectivity (users are notified)
-  - Automatic sync when connection restored
-- **Offline Indicator**: `OfflineIndicator.tsx` shows connection status and pending updates
+This is a **desktop-only web application** designed for office/dispatch staff:
+- Sidebar navigation with Dashboard, Schedule, Jobs, Technicians, Customers, Inventory
+- Full analytics dashboard with job statistics and charts
+- Job creation, assignment, and status management
+- Customer management with contact information
+- Technician management with specialties
 
-## Route Optimization
+## Deployment
 
-- **Endpoint**: `POST /api/optimize-route` - Optimizes job order using nearest-neighbor algorithm
-- **Input**: Array of job IDs and optional start coordinates
-- **Output**: Optimized job order with total distance and Google Maps link
-- **Component**: `RouteOptimizer.tsx` provides UI for selecting and optimizing routes
-- **Features**: Reports jobs missing coordinates, handles edge cases gracefully
+### Railway Deployment
+The application is designed for Railway deployment via GitHub:
+1. Push code to GitHub repository
+2. Connect Railway to the GitHub repo
+3. Set environment variables in Railway dashboard
+4. Railway auto-detects and deploys the Node.js application
 
-## AI Voice Calling (Bland AI)
+### Required Environment Variables
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SESSION_SECRET` | Session encryption key |
+| `ISSUER_URL` | OIDC issuer URL (Replit Auth) |
+| `REPL_ID` | Replit application ID |
 
-When a technician arrives and the customer isn't home, they can tap "Customer Not Home - AI Call" to trigger an automated AI phone call to the customer.
-
-### Environment Variables
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BLAND_AI_API_KEY` | Yes | API key from [Bland AI](https://app.bland.ai) |
-| `N8N_WEBHOOK_URL` | No | Optional n8n webhook URL for GHL sync |
-| `BLAND_WEBHOOK_URL` | No | Optional webhook for call completion events |
-| `SUPPORT_PHONE` | No | Callback number provided to customers |
-
-### Endpoints
-- `POST /api/jobs/:id/customer-not-home` - Triggers AI call to customer
-- `GET /api/calls/:callId` - Get call details from Bland AI
-
-### Integration Flow
-1. Technician marks "arrived" status
-2. Customer not answering door → tap "Customer Not Home - AI Call"
-3. Bland AI calls customer with personalized message
-4. If `N8N_WEBHOOK_URL` configured, event sent to n8n for GHL sync
-5. Call details logged for follow-up
-
-## Mobile vs Desktop Experience
-
-### Mobile (Field Technicians)
-- Routes under `/tech/*` with bottom navigation
-- Optimized for touch: large buttons, simple workflows
-- Key features: Job list, status updates, photo capture, navigation/call customer
-- Auto-redirect: Mobile devices accessing `/` go to `/tech`
-- Components: `MobileLayout.tsx`, `TechJobs.tsx`, `TechJobDetail.tsx`
-
-### Desktop (Office/Dispatch Staff)
-- Routes at root level with sidebar navigation
-- Full dashboard with analytics, schedule board, customer management
-- Key features: Job creation, technician assignment, inventory, reporting
-- Components: `Layout.tsx`, `Dashboard.tsx`, `Schedule.tsx`, `Jobs.tsx`
-
-## Multi-Client Deployment
-
-The application supports easy deployment to multiple clients (HVAC companies) via environment variables:
-
-### Client Configuration Variables
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_COMPANY_NAME` | Company name shown in header | FieldTech |
-| `VITE_COMPANY_TAGLINE` | Tagline/subtitle | Field Service Management |
-| `VITE_SUPPORT_EMAIL` | Support contact email | support@example.com |
-| `VITE_SUPPORT_PHONE` | Support phone number | (empty) |
-| `COMPANY_NAME` | Backend company name | FieldTech |
-| `TIMEZONE` | Default timezone | America/New_York |
-| `SERVICE_TYPES` | Comma-separated service types | hvac_repair,plumbing_repair,... |
-
-### Deployment Steps for New Client
-1. Fork or clone the Replit project
-2. Set environment variables for client branding
-3. Create a new PostgreSQL database (automatic on Replit)
-4. Run database migrations: `npm run db:push`
-5. Publish via Replit's autoscale deployment
-6. Each client gets their own isolated instance with separate data
+### Optional Environment Variables
+| Variable | Description |
+|----------|-------------|
+| `BLAND_AI_API_KEY` | API key for AI voice calling |
+| `VITE_COMPANY_NAME` | Custom company name branding |
+| `TIMEZONE` | Default timezone (America/New_York) |

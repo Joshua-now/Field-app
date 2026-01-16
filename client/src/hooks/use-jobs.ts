@@ -93,12 +93,12 @@ export function useUpdateJobStatus() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ id, status, location }: { id: number; status: string; location?: { latitude: number; longitude: number } }) => {
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
       const url = buildUrl(api.jobs.status.path, { id });
       const res = await fetch(url, {
         method: api.jobs.status.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, location }),
+        body: JSON.stringify({ status }),
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to update status");
