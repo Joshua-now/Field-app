@@ -1,6 +1,8 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
+import path from "path";
+import fs from "fs";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -33,10 +35,29 @@ const allowlist = [
 ];
 
 async function buildAll() {
+  // Always build into /dist at repo root
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");
-  await viteBuild();
+  const repoRoot = process.cwd();
+  const clientRoot = path.resolve(repoRoot, "client");
+  const clientOutDir = path.resolve(repoRoot, "dist", "client"); // <-- THIS is what server expects
+
+  await viteBuild({
+    root: clientRoot,
+    build: {
+      outDir: clientOutDir,
+      emptyOutDir: false, // dist is already wiped; keep false to be safe
+    },
+  });
+
+  // Hard fail if the expected file isn't there
+  const indexHtml = path.join(clientOutDir, "index.html");
+  if (!fs.existsSync(indexHtml)) {
+    throw new Error(
+      `Expected client build output at "${indexHtml}", but it was not found.`,
+    );
+  }
 
   console.log("building server...");
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));
