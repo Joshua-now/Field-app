@@ -1,11 +1,10 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
-import path from "path";
 import fs from "fs";
+import path from "path";
 
 // server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times
 const allowlist = [
   "@google/generative-ai",
   "axios",
@@ -35,31 +34,30 @@ const allowlist = [
 ];
 
 async function buildAll() {
-  // Always build into /dist at repo root
+  // clean output
   await rm("dist", { recursive: true, force: true });
 
+  /* ---------------- CLIENT ---------------- */
   console.log("building client...");
-  const repoRoot = process.cwd();
-  const clientRoot = path.resolve(repoRoot, "client");
-  const clientOutDir = path.resolve(repoRoot, "dist", "client"); // <-- THIS is what server expects
 
   await viteBuild({
-    root: clientRoot,
+    configFile: path.resolve("vite.config.ts"),
+    root: path.resolve("client"),
     build: {
-      outDir: clientOutDir,
-      emptyOutDir: false, // dist is already wiped; keep false to be safe
+      outDir: path.resolve("dist/client"),
+      emptyOutDir: true,
     },
   });
 
-  // Hard fail if the expected file isn't there
-  const indexHtml = path.join(clientOutDir, "index.html");
-  if (!fs.existsSync(indexHtml)) {
+  if (!fs.existsSync("dist/client/index.html")) {
     throw new Error(
-      `Expected client build output at "${indexHtml}", but it was not found.`,
+      "Client build failed: dist/client/index.html was not created",
     );
   }
 
+  /* ---------------- SERVER ---------------- */
   console.log("building server...");
+
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));
   const allDeps = [
     ...Object.keys(pkg.dependencies || {}),
