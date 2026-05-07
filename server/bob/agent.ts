@@ -256,7 +256,10 @@ export async function runBobAgent(
 ): Promise<string> {
   console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}`);
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const rawKey = process.env.OPENROUTER_API_KEY || "";
+  // Strip whitespace and any accidental "Bearer " prefix
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "");
+  console.log(`[Bob] Key prefix: ${apiKey.slice(0, 12)}... length: ${apiKey.length}`);
   if (!apiKey) {
     console.error("[Bob] OPENROUTER_API_KEY not set");
     return "OPENROUTER_API_KEY is not configured in Railway env vars.";
