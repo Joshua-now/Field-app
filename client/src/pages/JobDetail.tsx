@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, MapPin, Phone, Mail, Calendar, Clock, User, Camera, ImageIcon } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Mail, Calendar, Clock, User, Camera, ImageIcon, Loader2 } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+const CLOUDINARY_CLOUD = "dvlcwjzcx";
+const CLOUDINARY_PRESET = "contractor-photos";
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -17,7 +19,9 @@ export default function JobDetail() {
   const { data: photos, isLoading: photosLoading } = useJobPhotos(jobId);
   const createPhoto = useCreateJobPhoto(jobId);
   const updateStatus = useUpdateJobStatus();
-  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -43,11 +47,34 @@ export default function JobDetail() {
   if (!job) return <div className="text-center py-12 text-muted-foreground">Job not found</div>;
 
   const handleStatusChange = (newStatus: string) => {
-    updateStatus.mutate({ 
-      id: jobId, 
-      status: newStatus
-    });
+    updateStatus.mutate({ id: jobId, status: newStatus });
   };
+
+  async function handlePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_PRESET);
+
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,
+        { method: "POST", body: formData }
+      );
+      if (!res.ok) throw new Error(`Cloudinary error ${res.status}`);
+      const data = await res.json();
+      createPhoto.mutate({ photoUrl: data.secure_url, category: "during" });
+    } catch (err: any) {
+      setUploadError(err.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      // reset input so same file can be re-selected
+      e.target.value = "";
+    }
+  }
 
   return (
     <div className="space-y-8 animate-in">
@@ -117,39 +144,39 @@ export default function JobDetail() {
                 <CardHeader>
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-base">Job Photos</CardTitle>
-                    <ObjectUploader
-                      onGetUploadParameters={async (file) => {
-                        const res = await fetch("/api/uploads/request-url", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            name: file.name,
-                            size: file.size,
-                            contentType: file.type,
-                          }),
-                          credentials: "include",
-                        });
-                        const { uploadURL, objectPath } = await res.json();
-                        setUploadedUrl(objectPath);
-                        return {
-                          method: "PUT",
-                          url: uploadURL,
-                          headers: { "Content-Type": file.type },
-                        };
-                      }}
-                      onComplete={(result) => {
-                        if (result.successful && result.successful.length > 0 && uploadedUrl) {
-                          createPhoto.mutate({ photoUrl: uploadedUrl, category: "during" });
-                          setUploadedUrl(null);
-                        }
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Camera className="w-4 h-4" />
-                        <span>Add Photo</span>
-                      </div>
-                    </ObjectUploader>
+                    <div>
+                      {/* Hidden file input — opens camera on mobile */}
+                      <input
+                        ref={cameraInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handlePhotoSelected}
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => cameraInputRef.current?.click()}
+                        disabled={uploading}
+                        data-testid="button-add-photo"
+                      >
+                        {uploading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Uploading…
+                          </>
+                        ) : (
+                          <>
+                            <Camera className="w-4 h-4 mr-2" />
+                            Add Photo
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
+                  {uploadError && (
+                    <p className="text-xs text-destructive mt-1">{uploadError}</p>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {photosLoading ? (
