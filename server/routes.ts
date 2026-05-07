@@ -1,14 +1,11 @@
 import type { Express, Request, Response } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { createTenantStorage, ITenantStorage } from "./tenantStorage";
+import { createTenantStorage } from "./tenantStorage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
-import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { registerChatRoutes } from "./replit_integrations/chat";
-import { registerImageRoutes } from "./replit_integrations/image";
-import { registerAudioRoutes } from "./replit_integrations/audio";
+import { isAuthenticated } from "./auth/jwt";
+import { authRouter } from "./auth/routes";
 import { validateStatusTransition, JobStatus } from "@shared/jobStateMachine";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiRateLimiter, strictRateLimiter } from "./middleware/rateLimiter";
@@ -19,1010 +16,202 @@ import { auditLogMiddleware } from "./middleware/auditLog";
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
-// Ensure default tenant exists (called before auth setup)
-async function ensureDefaultTenant() {
-  const { TenantService } = await import("./tenantStorage");
-  const existingTenant = await TenantService.getTenant(DEFAULT_TENANT_ID);
-  if (!existingTenant) {
-    console.log("[Startup] Creating default tenant...");
-    const { tenants } = await import("@shared/models/auth");
-    const { db } = await import("./db");
-    await db.insert(tenants).values({
-      id: DEFAULT_TENANT_ID,
-      companyName: "Demo Company",
-      slug: "demo",
-      email: "demo@fieldtech.app",
-      planTier: "free",
-      status: "active",
-      settings: {
-        timezone: "America/New_York",
-        serviceTypes: ["hvac_repair", "plumbing_repair", "electrical_repair"]
-      }
-    }).onConflictDoNothing();
-    console.log("[Startup] Default tenant created");
-  }
+function getTenantStorage(req: Request) {
+  return createTenantStorage(req.tenantId || DEFAULT_TENANT_ID);
 }
 
-function getTenantStorage(req: Request): ITenantStorage {
-  const tenantId = req.tenantId || DEFAULT_TENANT_ID;
-  return createTenantStorage(tenantId);
-}
-
-// Helper to strip sensitive data from technician responses
 function sanitizeTechnician(tech: any) {
   if (!tech) return tech;
   const { passwordHash, ...safe } = tech;
   return safe;
 }
 
-export async function registerRoutes(
-  httpServer: Server,
-  app: Express
-): Promise<Server> {
-  // Security headers (XSS, clickjacking, MIME sniffing protection)
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.use(securityHeaders);
   app.use(requestIdMiddleware);
   app.use(auditLogMiddleware);
 
-  // Health check endpoint (before auth - public)
+  // ── PUBLIC ────────────────────────────────────────────────────────────────
   app.get("/api/health", async (_req, res) => {
     try {
       const health = await getHealthStatus();
-      const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
-      res.status(statusCode).json({
-        ...health,
-        timestamp: new Date().toISOString(),
-        version: process.env.npm_package_version || "1.0.0",
-      });
-    } catch (error) {
-      res.status(503).json({
-        status: 'unhealthy',
-        database: false,
-        error: 'Health check failed',
-        timestamp: new Date().toISOString(),
-      });
+      const code = health.status === "unhealthy" ? 503 : 200;
+      res.status(code).json({ ...health, timestamp: new Date().toISOString() });
+    } catch {
+      res.status(503).json({ status: "unhealthy" });
     }
   });
 
-  // Ensure default tenant exists BEFORE auth (so new users can be assigned)
-  await ensureDefaultTenant();
-  
-  // Setup Auth
-  await setupAuth(app);
-  registerAuthRoutes(app);
-  
-  // Apply tenant context after auth (extracts tenant from authenticated user)
-  app.use(tenantContextMiddleware);
-  
-  // Setup Integrations
-  registerObjectStorageRoutes(app);
-  registerChatRoutes(app);
-  registerImageRoutes(app);
-  registerAudioRoutes(app);
+  // ── AUTH (register / login / profile) ────────────────────────────────────
+  app.use("/api/auth", authRouter);
 
-  // Apply rate limiting to all API routes
-  app.use("/api", apiRateLimiter);
+  // ── PROTECTED — wire auth + tenant context on all /api routes below ──────
+  app.use("/api", apiRateLimiter, isAuthenticated, tenantContextMiddleware);
 
-  // --- Customer Portal (Public) ---
-  app.get("/api/customer-portal/lookup", async (req, res) => {
-    const phone = req.query.phone as string;
-    if (!phone) {
-      return res.status(400).json({ message: "Phone number required" });
-    }
-    
-    // Normalize input phone to digits only
-    const normalizedInput = phone.replace(/\D/g, "");
-    
-    // Require at least 10 digits for a valid US phone lookup
-    if (normalizedInput.length < 10) {
-      return res.status(400).json({ message: "Please enter a complete phone number" });
-    }
-    
-    // Get all customers and find EXACT match on normalized phone
-    const customers = await storage.getCustomers();
-    const customer = customers.find(c => {
-      const normalizedStored = c.phone.replace(/\D/g, "");
-      // Exact match on last 10 digits (handles country code variations)
-      return normalizedInput.slice(-10) === normalizedStored.slice(-10);
-    });
-    
-    if (!customer) {
-      return res.status(404).json({ message: "Customer not found" });
-    }
-    
-    const allJobs = await storage.getJobs({ customerId: customer.id });
-    const jobs = allJobs.map(j => ({
-      id: j.id,
-      jobNumber: j.jobNumber,
-      scheduledDate: j.scheduledDate,
-      scheduledTimeStart: j.scheduledTimeStart,
-      serviceType: j.serviceType,
-      status: j.status,
-      description: j.description,
-      workPerformed: j.workPerformed,
-      completedAt: j.completedAt,
-      technician: j.technician ? { firstName: j.technician.firstName, lastName: j.technician.lastName } : null
-    }));
-    
-    res.json({
-      customer: {
-        id: customer.id,
-        firstName: customer.firstName,
-        lastName: customer.lastName,
-        email: customer.email,
-        phone: customer.phone,
-        addressStreet: customer.addressStreet,
-        addressCity: customer.addressCity,
-        addressState: customer.addressState,
-        addressZip: customer.addressZip
-      },
-      jobs
-    });
-  });
-
-  // --- Smart Dispatch: Get technician suggestions for a job ---
-  app.get("/api/dispatch/suggestions", async (req, res) => {
-    const { customerId, serviceType, scheduledDate } = req.query;
-    
-    if (!customerId || !serviceType || !scheduledDate) {
-      return res.status(400).json({ message: "customerId, serviceType, and scheduledDate required" });
-    }
-    
-    // Get customer location
-    const customer = await storage.getCustomer(Number(customerId));
-    if (!customer) {
-      return res.status(404).json({ message: "Customer not found" });
-    }
-    
-    // Get all active technicians
-    const technicians = await storage.getTechnicians();
-    const activeTechs = technicians.filter(t => t.isActive);
-    
-    // Get all jobs for the scheduled date to calculate workload
-    const dateJobs = await storage.getJobs({ date: scheduledDate as string });
-    
-    // Calculate score for each technician
-    const suggestions = await Promise.all(activeTechs.map(async (tech) => {
-      let score = 100;
-      const reasons: string[] = [];
-      
-      // 1. Specialty match (+30 points)
-      const serviceCategory = (serviceType as string).split('_')[0]; // hvac, plumbing, electrical
-      if (tech.specialties?.includes(serviceCategory)) {
-        score += 30;
-        reasons.push(`Specialized in ${serviceCategory}`);
-      }
-      
-      // 2. Workload penalty (-10 per job that day)
-      const techJobs = dateJobs.filter(j => j.technicianId === tech.id && j.status !== "cancelled");
-      score -= techJobs.length * 10;
-      if (techJobs.length === 0) {
-        reasons.push("No jobs scheduled that day");
-      } else if (techJobs.length <= 2) {
-        reasons.push(`${techJobs.length} job(s) scheduled`);
-      } else {
-        reasons.push(`Heavy workload: ${techJobs.length} jobs`);
-      }
-      
-      // 3. Proximity bonus (if we have location data)
-      let distanceMiles: number | null = null;
-      if (customer.addressLat && customer.addressLng && tech.currentLocationLat && tech.currentLocationLng) {
-        const lat1 = parseFloat(customer.addressLat);
-        const lng1 = parseFloat(customer.addressLng);
-        const lat2 = parseFloat(tech.currentLocationLat);
-        const lng2 = parseFloat(tech.currentLocationLng);
-        
-        // Haversine formula for distance
-        const R = 3959; // Earth radius in miles
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLng/2) * Math.sin(dLng/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        distanceMiles = R * c;
-        
-        if (distanceMiles < 5) {
-          score += 20;
-          reasons.push(`Only ${distanceMiles.toFixed(1)} miles away`);
-        } else if (distanceMiles < 15) {
-          score += 10;
-          reasons.push(`${distanceMiles.toFixed(1)} miles away`);
-        } else {
-          reasons.push(`${distanceMiles.toFixed(1)} miles away`);
-        }
-      }
-      
-      // 4. Recent location update bonus (+5 if updated within last hour)
-      if (tech.lastLocationUpdate) {
-        const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        if (new Date(tech.lastLocationUpdate) > hourAgo) {
-          score += 5;
-        }
-      }
-      
-      return {
-        technician: sanitizeTechnician(tech),
-        score,
-        reasons,
-        distanceMiles,
-        jobsScheduled: techJobs.length
-      };
-    }));
-    
-    // Sort by score descending
-    suggestions.sort((a, b) => b.score - a.score);
-    
-    res.json(suggestions.slice(0, 5)); // Return top 5 suggestions
-  });
-
-  // --- Health Check ---
-  app.get("/api/health", async (req, res) => {
-    try {
-      const dbCheck = await storage.healthCheck();
-      res.json({ 
-        status: "ok", 
-        timestamp: new Date().toISOString(),
-        database: dbCheck ? "connected" : "disconnected"
-      });
-    } catch (err) {
-      res.status(503).json({ 
-        status: "degraded", 
-        timestamp: new Date().toISOString(),
-        database: "error"
-      });
-    }
-  });
-
-  // --- Job Checklists ---
-  app.get("/api/jobs/:jobId/checklist", async (req, res) => {
-    const items = await storage.getJobChecklistItems(Number(req.params.jobId));
-    res.json(items);
-  });
-
-  app.post("/api/jobs/:jobId/checklist/initialize", async (req, res) => {
-    const job = await storage.getJob(Number(req.params.jobId));
-    if (!job) {
-      return res.status(404).json({ message: "Job not found" });
-    }
-    const items = await storage.initializeJobChecklist(job.id, job.serviceType);
-    res.json(items);
-  });
-
-  app.put("/api/checklist-items/:id", async (req, res) => {
-    const updateSchema = z.object({
-      isCompleted: z.boolean().optional(),
-      notes: z.string().optional()
-    });
-    try {
-      const input = updateSchema.parse(req.body);
-      const updated = await storage.updateJobChecklistItem(Number(req.params.id), input);
-      res.json(updated);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
-  });
-
-  app.get("/api/service-checklists", async (req, res) => {
-    const serviceType = req.query.serviceType as string | undefined;
-    const checklists = await storage.getServiceChecklists(serviceType);
-    res.json(checklists);
-  });
-
-  app.post("/api/service-checklists", async (req, res) => {
-    const checklistSchema = z.object({
-      serviceType: z.string().min(1),
-      name: z.string().min(1),
-      items: z.array(z.object({
-        step: z.number(),
-        label: z.string(),
-        required: z.boolean().optional()
-      })).min(1)
-    });
-    try {
-      const input = checklistSchema.parse(req.body);
-      const tenantStore = getTenantStorage(req);
-      const checklist = await tenantStore.createServiceChecklist({ ...input, isActive: true });
-      res.status(201).json(checklist);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
-  });
-
-  // --- Route Optimization ---
-  app.post("/api/optimize-route", async (req, res) => {
-    const routeSchema = z.object({
-      jobIds: z.array(z.number()).min(2),
-      startLat: z.number().optional(),
-      startLng: z.number().optional()
-    });
-    
-    let input;
-    try {
-      input = routeSchema.parse(req.body);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
-    
-    const { jobIds, startLat, startLng } = input;
-    
-    const jobs = await Promise.all(
-      jobIds.map(id => storage.getJob(id))
-    );
-    
-    const validJobs = jobs.filter(j => j !== undefined) as NonNullable<typeof jobs[0]>[];
-    
-    if (validJobs.length < 2) {
-      return res.status(400).json({ message: "Need at least 2 valid jobs to optimize" });
-    }
-    
-    const jobsWithLocation = validJobs.filter(j => 
-      j.customer?.addressLat && j.customer?.addressLng
-    );
-    
-    const jobsMissingLocation = validJobs.filter(j => 
-      !j.customer?.addressLat || !j.customer?.addressLng
-    );
-    
-    if (jobsWithLocation.length < 2) {
-      return res.json({
-        optimizedOrder: validJobs.map(j => j.id),
-        jobs: validJobs.map(j => ({
-          id: j.id,
-          jobNumber: j.jobNumber,
-          customer: j.customer ? {
-            name: `${j.customer.firstName} ${j.customer.lastName}`,
-            address: `${j.customer.addressStreet || ''}, ${j.customer.addressCity || ''}`
-          } : null,
-          hasLocation: !!(j.customer?.addressLat && j.customer?.addressLng)
-        })),
-        totalDistanceMiles: null,
-        message: `Insufficient location data. ${jobsMissingLocation.length} job(s) missing coordinates.`,
-        missingLocationJobIds: jobsMissingLocation.map(j => j.id)
-      });
-    }
-    
-    const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-      const R = 3959;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLng = (lng2 - lng1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLng/2) * Math.sin(dLng/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R * c;
-    };
-    
-    const optimized: typeof jobsWithLocation = [];
-    const remaining = [...jobsWithLocation];
-    
-    let currentLat: number;
-    let currentLng: number;
-    
-    if (startLat !== undefined && startLng !== undefined) {
-      currentLat = startLat;
-      currentLng = startLng;
-    } else {
-      const firstJob = remaining.shift()!;
-      optimized.push(firstJob);
-      currentLat = parseFloat(firstJob.customer!.addressLat!);
-      currentLng = parseFloat(firstJob.customer!.addressLng!);
-    }
-    
-    while (remaining.length > 0) {
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
-      
-      for (let i = 0; i < remaining.length; i++) {
-        const job = remaining[i];
-        const lat = parseFloat(job.customer!.addressLat!);
-        const lng = parseFloat(job.customer!.addressLng!);
-        const dist = haversineDistance(currentLat, currentLng, lat, lng);
-        
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = i;
-        }
-      }
-      
-      const nearest = remaining.splice(nearestIdx, 1)[0];
-      optimized.push(nearest);
-      currentLat = parseFloat(nearest.customer!.addressLat!);
-      currentLng = parseFloat(nearest.customer!.addressLng!);
-    }
-    
-    let totalDistance = 0;
-    let prevLat = startLat ?? parseFloat(optimized[0].customer!.addressLat!);
-    let prevLng = startLng ?? parseFloat(optimized[0].customer!.addressLng!);
-    
-    for (const job of optimized) {
-      const lat = parseFloat(job.customer!.addressLat!);
-      const lng = parseFloat(job.customer!.addressLng!);
-      totalDistance += haversineDistance(prevLat, prevLng, lat, lng);
-      prevLat = lat;
-      prevLng = lng;
-    }
-    
-    const response: any = {
-      optimizedOrder: optimized.map(j => j.id),
-      jobs: optimized.map(j => ({
-        id: j.id,
-        jobNumber: j.jobNumber,
-        customer: j.customer ? {
-          name: `${j.customer.firstName} ${j.customer.lastName}`,
-          address: `${j.customer.addressStreet || ''}, ${j.customer.addressCity || ''}`
-        } : null,
-        hasLocation: true
-      })),
-      totalDistanceMiles: Math.round(totalDistance * 10) / 10
-    };
-    
-    if (jobsMissingLocation.length > 0) {
-      response.message = `${jobsMissingLocation.length} job(s) excluded due to missing coordinates`;
-      response.missingLocationJobIds = jobsMissingLocation.map(j => j.id);
-    }
-    
-    res.json(response);
-  });
-
-  // --- AI Voice Calling (Bland AI) ---
-  app.post("/api/jobs/:id/customer-not-home", async (req, res) => {
-    const jobId = Number(req.params.id);
-    const job = await storage.getJob(jobId);
-    
-    if (!job) return res.status(404).json({ message: "Job not found" });
-    if (!job.customer) return res.status(400).json({ message: "Job has no customer" });
-    if (!job.customer.phone) return res.status(400).json({ message: "Customer has no phone number" });
-    
-    const { triggerCustomerNotHomeCall } = await import('./blandAiService');
-    
-    const companyName = process.env.COMPANY_NAME || process.env.VITE_COMPANY_NAME || 'FieldTech';
-    const callbackNumber = process.env.VITE_SUPPORT_PHONE || process.env.SUPPORT_PHONE;
-    
-    const result = await triggerCustomerNotHomeCall({
-      phoneNumber: job.customer.phone,
-      customerName: `${job.customer.firstName} ${job.customer.lastName}`,
-      technicianName: job.technician ? `${job.technician.firstName}` : 'your technician',
-      serviceType: job.serviceType,
-      companyName,
-      jobNumber: job.jobNumber,
-      callbackNumber
-    });
-    
-    if (result.success) {
-      console.log(`AI call initiated for job ${jobId}: ${result.callId}`);
-      
-      res.json({ 
-        success: true, 
-        callId: result.callId,
-        message: "AI is calling the customer now"
-      });
-    } else {
-      res.status(500).json({ 
-        success: false, 
-        message: result.error || "Failed to initiate call"
-      });
-    }
-  });
-
-  app.get("/api/calls/:callId", async (req, res) => {
-    const { getCallDetails } = await import('./blandAiService');
-    const details = await getCallDetails(req.params.callId);
-    
-    if (!details) {
-      return res.status(404).json({ message: "Call not found" });
-    }
-    
-    res.json(details);
-  });
-
-  // --- Admin: Orphan Cleanup ---
-  app.post("/api/admin/cleanup", strictRateLimiter, async (req, res) => {
-    try {
-      const result = await storage.cleanupOrphans();
-      res.json({ 
-        success: true, 
-        cleaned: result,
-        timestamp: new Date().toISOString()
-      });
-    } catch (err) {
-      res.status(500).json({ 
-        success: false, 
-        message: "Cleanup failed" 
-      });
-    }
-  });
-
-  // --- API Routes ---
-
-  // Technicians
-  app.get(api.technicians.list.path, async (req, res) => {
-    const techs = await storage.getTechnicians();
+  // ── TECHNICIANS ───────────────────────────────────────────────────────────
+  app.get("/api/technicians", async (req, res) => {
+    const techs = await getTenantStorage(req).getTechnicians();
     res.json(techs.map(sanitizeTechnician));
   });
 
-  app.get(api.technicians.get.path, async (req, res) => {
-    const tech = await storage.getTechnician(Number(req.params.id));
+  app.get("/api/technicians/:id", async (req, res) => {
+    const tech = await getTenantStorage(req).getTechnician(Number(req.params.id));
     if (!tech) return res.status(404).json({ message: "Technician not found" });
     res.json(sanitizeTechnician(tech));
   });
 
-  app.post(api.technicians.create.path, isAuthenticated, requireTenant, async (req, res) => {
-    try {
-      // Parse input without tenantId (client doesn't send it)
-      const clientInput = api.technicians.create.input.omit({ tenantId: true }).parse(req.body);
-      // Add tenantId from authenticated user's context
-      const input = { ...clientInput, tenantId: req.tenantId! };
-      const tenantStorage = getTenantStorage(req);
-      const tech = await tenantStorage.createTechnician(input);
-      res.status(201).json(sanitizeTechnician(tech));
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+  app.post("/api/technicians", strictRateLimiter, async (req, res) => {
+    const tech = await getTenantStorage(req).createTechnician(req.body);
+    res.status(201).json(sanitizeTechnician(tech));
   });
 
-  app.put(api.technicians.update.path, async (req, res) => {
-    try {
-      const input = api.technicians.update.input.parse(req.body);
-      const tech = await storage.updateTechnician(Number(req.params.id), input);
-      if (!tech) return res.status(404).json({ message: "Technician not found" });
-      res.json(sanitizeTechnician(tech));
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+  app.put("/api/technicians/:id", async (req, res) => {
+    const tech = await getTenantStorage(req).updateTechnician(Number(req.params.id), req.body);
+    res.json(sanitizeTechnician(tech));
   });
 
-  // Customers
-  app.get(api.customers.list.path, async (req, res) => {
-    const customers = await storage.getCustomers(req.query.search as string);
+  app.patch("/api/technicians/:id/location", async (req, res) => {
+    const { latitude, longitude } = req.body;
+    const tech = await getTenantStorage(req).updateTechnicianLocation(
+      Number(req.params.id), latitude, longitude
+    );
+    if (!tech) return res.status(404).json({ message: "Technician not found" });
+    res.json(sanitizeTechnician(tech));
+  });
+
+  // ── CUSTOMERS ─────────────────────────────────────────────────────────────
+  app.get("/api/customers", async (req, res) => {
+    const customers = await getTenantStorage(req).getCustomers(req.query.search as string);
     res.json(customers);
   });
 
-  app.get(api.customers.get.path, async (req, res) => {
-    const customer = await storage.getCustomer(Number(req.params.id));
+  app.get("/api/customers/:id", async (req, res) => {
+    const customer = await getTenantStorage(req).getCustomer(Number(req.params.id));
     if (!customer) return res.status(404).json({ message: "Customer not found" });
     res.json(customer);
   });
 
-  app.post(api.customers.create.path, isAuthenticated, requireTenant, async (req, res) => {
-    try {
-      // Parse input without tenantId (client doesn't send it)
-      const clientInput = api.customers.create.input.omit({ tenantId: true }).parse(req.body);
-      // Add tenantId from authenticated user's context
-      const input = { ...clientInput, tenantId: req.tenantId! };
-      const tenantStorage = getTenantStorage(req);
-      const customer = await tenantStorage.createCustomer(input);
-      res.status(201).json(customer);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+  app.post("/api/customers", async (req, res) => {
+    const customer = await getTenantStorage(req).createCustomer(req.body);
+    res.status(201).json(customer);
   });
 
   app.put("/api/customers/:id", async (req, res) => {
-    try {
-      const customer = await storage.updateCustomer(Number(req.params.id), req.body);
-      if (!customer) return res.status(404).json({ message: "Customer not found" });
-      res.json(customer);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+    const customer = await getTenantStorage(req).updateCustomer(Number(req.params.id), req.body);
+    res.json(customer);
   });
 
   app.delete("/api/customers/:id", async (req, res) => {
-    const deleted = await storage.deleteCustomer(Number(req.params.id));
-    if (!deleted) return res.status(404).json({ message: "Customer not found" });
-    res.json({ success: true });
+    const ok = await getTenantStorage(req).deleteCustomer(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Customer not found" });
+    res.status(204).send();
   });
 
-  // Jobs
-  app.get(api.jobs.list.path, async (req, res) => {
-    const filters = {
-      date: req.query.date as string,
-      technicianId: req.query.technicianId ? Number(req.query.technicianId) : undefined,
-      status: req.query.status as string,
-      customerId: req.query.customerId ? Number(req.query.customerId) : undefined,
-    };
-    const jobsList = await storage.getJobs(filters);
-    // Sanitize technician data in responses
-    const sanitizedJobs = jobsList.map(job => ({
-      ...job,
-      technician: sanitizeTechnician(job.technician)
-    }));
-    res.json(sanitizedJobs);
-  });
-
-  app.get(api.jobs.get.path, async (req, res) => {
-    const job = await storage.getJob(Number(req.params.id));
-    if (!job) return res.status(404).json({ message: "Job not found" });
-    res.json({
-      ...job,
-      technician: sanitizeTechnician(job.technician)
+  // ── JOBS ──────────────────────────────────────────────────────────────────
+  app.get("/api/jobs", async (req, res) => {
+    const { date, technicianId, status, customerId } = req.query as any;
+    const jobs = await getTenantStorage(req).getJobs({
+      date, status,
+      technicianId: technicianId ? Number(technicianId) : undefined,
+      customerId: customerId ? Number(customerId) : undefined,
     });
+    res.json(jobs);
   });
 
-  app.post(api.jobs.create.path, isAuthenticated, requireTenant, async (req, res) => {
-    try {
-      // Parse input without tenantId (client doesn't send it)
-      const clientInput = api.jobs.create.input.omit({ tenantId: true }).parse(req.body);
-      // Add tenantId from authenticated user's context
-      const input = { ...clientInput, tenantId: req.tenantId! };
-      const tenantStorage = getTenantStorage(req);
-      const job = await tenantStorage.createJob(input);
-      res.status(201).json(job);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+  app.get("/api/jobs/:id", async (req, res) => {
+    const job = await getTenantStorage(req).getJob(Number(req.params.id));
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    res.json(job);
   });
 
-  app.put(api.jobs.update.path, async (req, res) => {
-    try {
-      const input = api.jobs.update.input.parse(req.body);
-      
-      if (input.status) {
-        const currentJob = await storage.getJob(Number(req.params.id));
-        if (!currentJob) return res.status(404).json({ message: "Job not found" });
-        
-        const validation = validateStatusTransition(
-          currentJob.status as JobStatus, 
-          input.status as JobStatus
-        );
-        if (!validation.valid) {
-          return res.status(409).json({ 
-            error: "Invalid Status Transition",
-            message: validation.message 
-          });
-        }
-      }
-      
-      const job = await storage.updateJob(Number(req.params.id), input);
-      if (!job) return res.status(404).json({ message: "Job not found" });
-      res.json(job);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+  app.post("/api/jobs", async (req, res) => {
+    const job = await getTenantStorage(req).createJob(req.body);
+    res.status(201).json(job);
+  });
+
+  app.put("/api/jobs/:id", async (req, res) => {
+    const job = await getTenantStorage(req).updateJob(Number(req.params.id), req.body);
+    res.json(job);
+  });
+
+  app.post("/api/jobs/:id/status", async (req, res) => {
+    const job = await getTenantStorage(req).getJob(Number(req.params.id));
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    const { status } = req.body;
+    const result = validateStatusTransition(job.status as JobStatus, status as JobStatus);
+    if (!result.valid) return res.status(400).json({ message: result.message });
+
+    const updated = await getTenantStorage(req).updateJob(Number(req.params.id), { status });
+    res.json(updated);
   });
 
   app.delete("/api/jobs/:id", async (req, res) => {
-    const deleted = await storage.deleteJob(Number(req.params.id));
-    if (!deleted) return res.status(404).json({ message: "Job not found" });
-    res.json({ success: true });
-  });
-  
-  // Parts
-  app.get(api.parts.list.path, async (req, res) => {
-    const parts = await storage.getParts();
-    res.json(parts);
-  });
-  
-  app.post(api.parts.create.path, isAuthenticated, requireTenant, async (req, res) => {
-    try {
-      // Parse input without tenantId (client doesn't send it)
-      const clientInput = api.parts.create.input.omit({ tenantId: true }).parse(req.body);
-      // Add tenantId from authenticated user's context
-      const input = { ...clientInput, tenantId: req.tenantId! };
-      const tenantStorage = getTenantStorage(req);
-      const part = await tenantStorage.createPart(input);
-      res.status(201).json(part);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+    const ok = await getTenantStorage(req).deleteJob(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Job not found" });
+    res.status(204).send();
   });
 
-  // Job Photos
-  app.get(api.jobPhotos.list.path, async (req, res) => {
-    const photos = await storage.getJobPhotos(Number(req.params.jobId));
-    res.json(photos);
+  // ── PARTS ─────────────────────────────────────────────────────────────────
+  app.get("/api/parts", async (req, res) => {
+    res.json(await getTenantStorage(req).getParts());
   });
 
-  app.post(api.jobPhotos.create.path, async (req, res) => {
-    try {
-      const input = api.jobPhotos.create.input.parse(req.body);
-      const photo = await storage.createJobPhoto({
-        ...input,
-        jobId: Number(req.params.jobId),
-      });
-      res.status(201).json(photo);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+  app.post("/api/parts", async (req, res) => {
+    res.status(201).json(await getTenantStorage(req).createPart(req.body));
   });
 
-  app.delete("/api/photos/:id", async (req, res) => {
-    const deleted = await storage.deleteJobPhoto(Number(req.params.id));
-    if (!deleted) return res.status(404).json({ message: "Photo not found" });
-    res.json({ success: true });
+  // ── JOB PHOTOS ────────────────────────────────────────────────────────────
+  app.get("/api/jobs/:jobId/photos", async (req, res) => {
+    res.json(await getTenantStorage(req).getJobPhotos(Number(req.params.jobId)));
   });
 
-  // --- Tenant Management (Multi-tenancy) ---
-  
-  // Get current tenant info
-  app.get("/api/tenants/current", isAuthenticated, requireTenant, async (req, res) => {
-    res.json(req.tenant);
-  });
-
-  // Create new tenant (company signup)
-  app.post("/api/tenants", async (req, res) => {
-    const user = req.user as any;
-    if (!user?.id) {
-      return res.status(401).json({ message: "Authentication required" });
-    }
-
-    const tenantSchema = z.object({
-      companyName: z.string().min(1, "Company name is required"),
-      slug: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase letters, numbers, and dashes only"),
-      contactEmail: z.string().email(),
-      contactPhone: z.string().optional(),
-      timezone: z.string().default("America/New_York"),
-      serviceTypes: z.array(z.string()).default(["hvac_repair", "plumbing_repair", "electrical_repair"])
+  app.post("/api/jobs/:jobId/photos", async (req, res) => {
+    const photo = await getTenantStorage(req).createJobPhoto({
+      ...req.body,
+      jobId: Number(req.params.jobId),
     });
-
-    try {
-      const input = tenantSchema.parse(req.body);
-      
-      // Check if slug is already taken
-      const { TenantService } = await import("./tenantStorage");
-      const existingTenant = await TenantService.getTenantBySlug(input.slug);
-      if (existingTenant) {
-        return res.status(409).json({ message: "Company slug already exists. Please choose a different one." });
-      }
-
-      // Create new tenant
-      const tenant = await TenantService.createTenant({
-        companyName: input.companyName,
-        slug: input.slug,
-        email: input.contactEmail,
-        phone: input.contactPhone || null,
-        planTier: "free",
-        status: "active",
-        settings: {
-          timezone: input.timezone,
-          serviceTypes: input.serviceTypes
-        }
-      });
-
-      // Update the user's tenant association
-      const { db } = await import("./db");
-      const { users } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      await db.update(users)
-        .set({ tenantId: tenant.id, role: "admin" })
-        .where(eq(users.id, user.id));
-
-      res.status(201).json({ 
-        message: "Company created successfully",
-        tenant 
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+    res.status(201).json(photo);
   });
 
-  // Update tenant settings
-  app.patch("/api/tenants/current", requireTenant, async (req, res) => {
-    const updateSchema = z.object({
-      companyName: z.string().min(1).optional(),
-      email: z.string().email().optional(),
-      phone: z.string().optional(),
-      settings: z.record(z.any()).optional()
+  app.delete("/api/jobs/:jobId/photos/:id", async (req, res) => {
+    const ok = await getTenantStorage(req).deleteJobPhoto(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Photo not found" });
+    res.status(204).send();
+  });
+
+  // ── JOB NOTES ─────────────────────────────────────────────────────────────
+  app.get("/api/jobs/:jobId/notes", async (req, res) => {
+    res.json(await getTenantStorage(req).getJobNotes(Number(req.params.jobId)));
+  });
+
+  app.post("/api/jobs/:jobId/notes", async (req, res) => {
+    const note = await getTenantStorage(req).createJobNote({
+      ...req.body,
+      jobId: Number(req.params.jobId),
     });
-
-    try {
-      const input = updateSchema.parse(req.body);
-      const { TenantService } = await import("./tenantStorage");
-      const updated = await TenantService.updateTenant(req.tenantId!, input);
-      res.json(updated);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
+    res.status(201).json(note);
   });
 
-  // Seed Data Function (called once if DB empty)
-  await seedDatabase();
+  // ── CHECKLISTS ────────────────────────────────────────────────────────────
+  app.get("/api/checklists", async (req, res) => {
+    res.json(await getTenantStorage(req).getServiceChecklists(req.query.serviceType as string));
+  });
 
-  // Error handler middleware (must be last)
+  app.get("/api/jobs/:jobId/checklist", async (req, res) => {
+    res.json(await getTenantStorage(req).getJobChecklistItems(Number(req.params.jobId)));
+  });
+
+  app.patch("/api/checklist-items/:id", async (req, res) => {
+    const item = await getTenantStorage(req).updateJobChecklistItem(
+      Number(req.params.id),
+      { isCompleted: req.body.isCompleted, notes: req.body.notes }
+    );
+    res.json(item);
+  });
+
+  // ── ERROR HANDLER (must be last) ──────────────────────────────────────────
   app.use(errorHandler);
 
   return httpServer;
-}
-
-async function seedDatabase() {
-  // Ensure default tenant exists
-  const { TenantService } = await import("./tenantStorage");
-  const existingTenant = await TenantService.getTenant(DEFAULT_TENANT_ID);
-  if (!existingTenant) {
-    console.log("Creating default tenant...");
-    // Insert directly with SQL to set specific id
-    const { tenants } = await import("@shared/models/auth");
-    await db.insert(tenants).values({
-      id: DEFAULT_TENANT_ID,
-      companyName: "Demo Company",
-      slug: "demo",
-      email: "demo@fieldtech.app",
-      planTier: "free",
-      status: "active",
-      settings: {
-        timezone: "America/New_York",
-        serviceTypes: ["hvac_repair", "plumbing_repair", "electrical_repair"]
-      }
-    }).onConflictDoNothing();
-  }
-
-  const existingTechs = await storage.getTechnicians();
-  if (existingTechs.length === 0) {
-    console.log("Seeding database...");
-    
-    // Techs
-    const tech1 = await storage.createTechnician({
-      tenantId: DEFAULT_TENANT_ID,
-      email: "tech1@example.com",
-      passwordHash: "1234",
-      firstName: "Mike",
-      lastName: "Johnson",
-      phone: "555-0101",
-      specialties: ["hvac", "electrical"],
-      currentLocationLat: "28.5383",
-      currentLocationLng: "-81.3792"
-    });
-    
-    const tech2 = await storage.createTechnician({
-      tenantId: DEFAULT_TENANT_ID,
-      email: "tech2@example.com",
-      passwordHash: "5678",
-      firstName: "Sarah",
-      lastName: "Connor",
-      phone: "555-0102",
-      specialties: ["plumbing"],
-    });
-
-    // Customers
-    const cust1 = await storage.createCustomer({
-      tenantId: DEFAULT_TENANT_ID,
-      firstName: "Alice",
-      lastName: "Smith",
-      phone: "555-1001",
-      email: "alice@example.com",
-      addressStreet: "123 Maple Ave",
-      addressCity: "Orlando",
-      addressState: "FL",
-      addressZip: "32801"
-    });
-
-    const cust2 = await storage.createCustomer({
-      tenantId: DEFAULT_TENANT_ID,
-      firstName: "Bob",
-      lastName: "Jones",
-      phone: "555-1002",
-      email: "bob@example.com",
-      addressStreet: "456 Oak Dr",
-      addressCity: "Orlando",
-      addressState: "FL",
-      addressZip: "32803"
-    });
-    
-    // Jobs
-    await storage.createJob({
-      tenantId: DEFAULT_TENANT_ID,
-      customerId: cust1.id,
-      technicianId: tech1.id,
-      scheduledDate: new Date().toISOString().split('T')[0],
-      scheduledTimeStart: "09:00:00",
-      serviceType: "hvac_repair",
-      priority: "urgent",
-      description: "AC not cooling",
-      status: "scheduled"
-    });
-    
-    await storage.createJob({
-      tenantId: DEFAULT_TENANT_ID,
-      customerId: cust2.id,
-      technicianId: tech2.id,
-      scheduledDate: new Date().toISOString().split('T')[0],
-      scheduledTimeStart: "14:00:00",
-      serviceType: "plumbing_leak",
-      priority: "normal",
-      description: "Leaky faucet in kitchen",
-      status: "assigned"
-    });
-    
-    // Service Checklists
-    await storage.createServiceChecklist({
-      tenantId: DEFAULT_TENANT_ID,
-      serviceType: "hvac_repair",
-      name: "HVAC Repair Checklist",
-      items: [
-        { step: 1, label: "Verify customer complaint", required: true },
-        { step: 2, label: "Check thermostat settings", required: true },
-        { step: 3, label: "Inspect air filter condition", required: true },
-        { step: 4, label: "Check refrigerant levels", required: true },
-        { step: 5, label: "Inspect condenser coils", required: false },
-        { step: 6, label: "Test electrical connections", required: true },
-        { step: 7, label: "Verify proper airflow", required: true },
-        { step: 8, label: "Document work performed", required: true }
-      ],
-      isActive: true
-    });
-
-    await storage.createServiceChecklist({
-      tenantId: DEFAULT_TENANT_ID,
-      serviceType: "plumbing_leak",
-      name: "Plumbing Leak Repair",
-      items: [
-        { step: 1, label: "Locate source of leak", required: true },
-        { step: 2, label: "Shut off water supply", required: true },
-        { step: 3, label: "Assess damage extent", required: true },
-        { step: 4, label: "Repair or replace affected components", required: true },
-        { step: 5, label: "Test for additional leaks", required: true },
-        { step: 6, label: "Restore water supply", required: true },
-        { step: 7, label: "Clean work area", required: false },
-        { step: 8, label: "Document work performed", required: true }
-      ],
-      isActive: true
-    });
-
-    await storage.createServiceChecklist({
-      tenantId: DEFAULT_TENANT_ID,
-      serviceType: "hvac_maintenance",
-      name: "HVAC Preventive Maintenance",
-      items: [
-        { step: 1, label: "Replace air filters", required: true },
-        { step: 2, label: "Clean condenser coils", required: true },
-        { step: 3, label: "Check refrigerant charge", required: true },
-        { step: 4, label: "Inspect electrical connections", required: true },
-        { step: 5, label: "Lubricate moving parts", required: false },
-        { step: 6, label: "Check thermostat calibration", required: true },
-        { step: 7, label: "Inspect ductwork", required: false },
-        { step: 8, label: "Test system operation", required: true }
-      ],
-      isActive: true
-    });
-
-    // Parts
-    await storage.createPart({
-      tenantId: DEFAULT_TENANT_ID,
-      partName: "HVAC Filter 20x20x1",
-      quantityOnHand: 50,
-      costPerUnit: "15.00"
-    });
-    
-    console.log("Database seeded!");
-  }
 }

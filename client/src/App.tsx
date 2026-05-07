@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
+import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Schedule from "@/pages/Schedule";
 import Jobs from "@/pages/Jobs";
@@ -20,11 +21,10 @@ import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
+  const [, navigate] = useLocation();
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      window.location.href = "/api/login";
-    }
+    if (!isLoading && !user) navigate("/login");
   }, [user, isLoading]);
 
   if (isLoading) {
@@ -34,43 +34,23 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
       </div>
     );
   }
-
   if (!user) return null;
 
-  return (
-    <Layout>
-      <Component />
-    </Layout>
-  );
+  return <Layout><Component /></Layout>;
 }
 
 function Router() {
   return (
     <Switch>
-      <Route path="/">
-        {() => <ProtectedRoute component={Dashboard} />}
-      </Route>
-      <Route path="/schedule">
-        {() => <ProtectedRoute component={Schedule} />}
-      </Route>
-      <Route path="/jobs">
-        {() => <ProtectedRoute component={Jobs} />}
-      </Route>
-      <Route path="/jobs/:id">
-        {() => <ProtectedRoute component={JobDetail} />}
-      </Route>
-      <Route path="/technicians">
-        {() => <ProtectedRoute component={Technicians} />}
-      </Route>
-      <Route path="/customers">
-        {() => <ProtectedRoute component={Customers} />}
-      </Route>
-      <Route path="/inventory">
-        {() => <ProtectedRoute component={Inventory} />}
-      </Route>
-      <Route path="/portal">
-        {() => <CustomerPortal />}
-      </Route>
+      <Route path="/login" component={Login} />
+      <Route path="/">{() => <ProtectedRoute component={Dashboard} />}</Route>
+      <Route path="/schedule">{() => <ProtectedRoute component={Schedule} />}</Route>
+      <Route path="/jobs">{() => <ProtectedRoute component={Jobs} />}</Route>
+      <Route path="/jobs/:id">{() => <ProtectedRoute component={JobDetail} />}</Route>
+      <Route path="/technicians">{() => <ProtectedRoute component={Technicians} />}</Route>
+      <Route path="/customers">{() => <ProtectedRoute component={Customers} />}</Route>
+      <Route path="/inventory">{() => <ProtectedRoute component={Inventory} />}</Route>
+      <Route path="/portal">{() => <CustomerPortal />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

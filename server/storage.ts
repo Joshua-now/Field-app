@@ -5,10 +5,10 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, ilike } from "drizzle-orm";
-import { authStorage, type IAuthStorage } from "./replit_integrations/auth/storage";
+
 import { sanitizeString, sanitizeEmail, sanitizePhone, sanitizeNotes, normalizeZipCode } from "@shared/sanitize";
 
-export interface IStorage extends IAuthStorage {
+export interface IStorage {
   // Technicians
   getTechnicians(): Promise<Technician[]>;
   getTechnician(id: number): Promise<Technician | undefined>;
@@ -57,8 +57,6 @@ export class DatabaseStorage implements IStorage {
   // but here I'll just implement the interface and use the imported authStorage for the auth parts if I needed to merge them.
   // Actually, typescript might complain if I claim to implement IAuthStorage but don't have the methods.
   // I will just implement them by calling authStorage.
-  getUser(id: string) { return authStorage.getUser(id); }
-  upsertUser(user: any) { return authStorage.upsertUser(user); }
 
   // Technicians
   async getTechnicians(): Promise<Technician[]> {

@@ -4,7 +4,6 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export * from "./models/auth";
-export * from "./models/chat";
 
 import { tenants } from "./models/auth";
 
