@@ -257,9 +257,10 @@ export async function runBobAgent(
   console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}`);
 
   const rawKey = process.env.OPENROUTER_API_KEY || "";
-  // Strip whitespace and any accidental "Bearer " prefix
-  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "");
-  console.log(`[Bob] Key prefix: ${apiKey.slice(0, 12)}... length: ${apiKey.length}`);
+  // Strip whitespace, accidental "Bearer " prefix, and surrounding quotes
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "").replace(/^["'`]|["'`]$/g, "").trim();
+  const keyDebug = `len=${apiKey.length} prefix="${apiKey.slice(0, 14)}" sk-or=${apiKey.startsWith("sk-or-")}`;
+  console.log(`[Bob] Key info: ${keyDebug}`);
   if (!apiKey) {
     console.error("[Bob] OPENROUTER_API_KEY not set");
     return "OPENROUTER_API_KEY is not configured in Railway env vars.";
@@ -319,7 +320,8 @@ export async function runBobAgent(
       );
     } catch (e: any) {
       console.error("[Bob] OpenRouter error:", e?.response?.data || e.message);
-      return `OpenRouter error: ${e?.response?.data?.error?.message || e.message}`;
+      const orMsg = e?.response?.data?.error?.message || e?.response?.data?.message || e.message;
+      return `OpenRouter error: ${orMsg}\n\nKey debug: ${keyDebug}`;
     }
 
     const choice = response.data.choices?.[0];
