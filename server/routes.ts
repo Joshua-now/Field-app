@@ -15,6 +15,7 @@ import { securityHeaders, requestIdMiddleware } from "./middleware/security";
 import { auditLogMiddleware } from "./middleware/auditLog";
 import { eq } from "drizzle-orm";
 import { bobConversations, bobMessages, bobMemory } from "@shared/schema";
+import { runBobAgent } from "./bob/agent";
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
@@ -245,7 +246,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     await db.insert(bobMessages).values({ tenantId, conversationId, role: "user", content });
 
-    const reply = `Got it, Joshua. Full agent coming in Phase 3. You said: "${content}"`;
+    // Run the real Bob agent
+    let reply: string;
+    try {
+      reply = await runBobAgent(tenantId, conversationId, content);
+    } catch (err: any) {
+      console.error("[Bob] Agent error:", err?.message);
+      reply = "I hit an error on my end — check the server logs.";
+    }
+
     const [msg] = await db.insert(bobMessages).values({
       tenantId, conversationId, role: "assistant", content: reply,
     }).returning();

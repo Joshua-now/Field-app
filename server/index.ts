@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { startHeartbeat } from "./bob/heartbeat";
 
 const app = express();
 const httpServer = createServer(app);
@@ -57,5 +58,7 @@ app.use((req, res, next) => {
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     log(`serving on port ${port}`);
+    // Start Bob's scheduled jobs after server is ready
+    startHeartbeat();
   });
 })();
