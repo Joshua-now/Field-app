@@ -6,13 +6,13 @@
 import axios from "axios";
 import { db } from "../db";
 import { bobMessages, bobConversations, tenants, users } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 // ─── MODEL ROUTING ────────────────────────────────────────────────────────────
 const MODELS = {
   fast:   "openai/gpt-4o-mini",
-  sonnet: "anthropic/claude-sonnet-4-5",
-  opus:   "anthropic/claude-opus-4-5",
+  sonnet: "anthropic/claude-sonnet-4-5-20250929",
+  opus:   "anthropic/claude-opus-4-5-20251101",
 } as const;
 
 const SIMPLE_KW = ["status","hi","hello","hey","yes","no","thanks","ok","what","who","when","where","how many","check"];
@@ -62,6 +62,7 @@ async function getN8nWorkflows() {
   try {
     const base = process.env.N8N_BASE_URL;
     const key  = process.env.N8N_API_KEY;
+    if (!base || !key) return { ok: false, error: "N8N_BASE_URL or N8N_API_KEY not set" };
     const [wfR, exR] = await Promise.all([
       axios.get(`${base}/api/v1/workflows`, { headers: { "X-N8N-API-KEY": key }, params: { limit: 20 }, timeout: 8000 }),
       axios.get(`${base}/api/v1/executions`, { headers: { "X-N8N-API-KEY": key }, params: { limit: 10 }, timeout: 8000 }).catch(() => ({ data: { data: [] } })),
@@ -82,7 +83,9 @@ async function getN8nWorkflows() {
 
 async function triggerN8nWorkflow(workflowName: string, action = "restart") {
   const base = process.env.N8N_BASE_URL;
-  const headers = { "X-N8N-API-KEY": process.env.N8N_API_KEY };
+  const key = process.env.N8N_API_KEY;
+  if (!base || !key) return { ok: false, error: "N8N not configured" };
+  const headers = { "X-N8N-API-KEY": key };
   const listR = await axios.get(`${base}/api/v1/workflows`, { headers, params: { limit: 50 }, timeout: 8000 });
   const match = (listR.data?.data || []).find((w: any) =>
     w.name.toLowerCase().includes(workflowName.toLowerCase())
@@ -97,7 +100,6 @@ async function triggerN8nWorkflow(workflowName: string, action = "restart") {
     await axios.patch(`${base}/api/v1/workflows/${match.id}`, { active: false }, { headers, timeout: 8000 });
     return { ok: true, message: `⏸ "${match.name}" deactivated` };
   }
-  // restart
   await axios.patch(`${base}/api/v1/workflows/${match.id}`, { active: false }, { headers, timeout: 8000 });
   await new Promise(r => setTimeout(r, 600));
   await axios.patch(`${base}/api/v1/workflows/${match.id}`, { active: true }, { headers, timeout: 8000 });
@@ -107,9 +109,9 @@ async function triggerN8nWorkflow(workflowName: string, action = "restart") {
 async function checkRailwayServices() {
   const SERVICES = [
     { name: "n8n",         url: `${process.env.N8N_BASE_URL || "https://n8n-production-5955.up.railway.app"}/healthz` },
-    { name: "Switchboard", url: `${process.env.SWITCHBOARD_URL}/health` },
+    { name: "Switchboard", url: process.env.SWITCHBOARD_URL ? `${process.env.SWITCHBOARD_URL}/health` : null },
     { name: "Field App",   url: `${process.env.SELF_URL || "https://field-app-production-d5c8.up.railway.app"}/api/health` },
-  ].filter(s => s.url && !s.url.startsWith("undefined"));
+  ].filter((s): s is { name: string; url: string } => !!s.url);
 
   return Promise.all(SERVICES.map(async ({ name, url }) => {
     const t0 = Date.now();
@@ -127,7 +129,11 @@ async function checkRailwayServices() {
 async function searchGHLContacts(name: string) {
   try {
     const r = await axios.get("https://services.leadconnectorhq.com/contacts/search", {
-      headers: { Authorization: `Bearer ${process.env.GHL_PIT_TOKEN}`, "Content-Type": "application/json", Version: "2021-07-28" },
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_PIT_TOKEN}`,
+        "Content-Type": "application/json",
+        Version: "2021-07-28",
+      },
       params: { locationId: process.env.GHL_LOCATION_ID, query: name, limit: 5 },
     });
     return r.data?.contacts || [];
@@ -142,7 +148,7 @@ const BOB_TOOLS = [
     type: "function",
     function: {
       name: "get_system_status",
-      description: "Check health of all infrastructure: n8n, Switchboard, Railway services. Always call this for status questions.",
+      description: "Check health of all infrastructure: n8n, Switchboard, Railway services.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -158,7 +164,7 @@ const BOB_TOOLS = [
     type: "function",
     function: {
       name: "get_n8n_workflows",
-      description: "List n8n workflows and recent executions. Use to check what's running or broken.",
+      description: "List n8n workflows and recent executions.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -170,8 +176,8 @@ const BOB_TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          workflow_name: { type: "string", description: "Partial name of the workflow to find" },
-          action: { type: "string", enum: ["restart", "activate", "deactivate"], description: "What to do" },
+          workflow_name: { type: "string" },
+          action: { type: "string", enum: ["restart", "activate", "deactivate"] },
         },
         required: ["workflow_name"],
       },
@@ -184,9 +190,7 @@ const BOB_TOOLS = [
       description: "Look up a contact in GoHighLevel CRM by name.",
       parameters: {
         type: "object",
-        properties: {
-          name: { type: "string", description: "Contact name to search" },
-        },
+        properties: { name: { type: "string" } },
         required: ["name"],
       },
     },
@@ -195,7 +199,7 @@ const BOB_TOOLS = [
 
 // ─── TOOL EXECUTOR ────────────────────────────────────────────────────────────
 async function executeTool(name: string, args: any): Promise<any> {
-  console.log(`[Bob] tool: ${name}`, args);
+  console.log(`[Bob] tool: ${name}`, JSON.stringify(args));
   switch (name) {
     case "get_system_status": {
       const [railway, switchboard, n8n] = await Promise.all([
@@ -226,10 +230,10 @@ You work for ${user?.firstName || "Joshua"} ${user?.lastName || ""} and know the
 
 FLUID PRODUCTIONS — WHAT WE SELL:
 - Tier 1: After Hours Receptionist — $397/mo (AI answers calls after hours)
-- Tier 2: Speed to Lead — $997/mo (AI calls back ad leads within 60 seconds)  
+- Tier 2: Speed to Lead — $997/mo (AI calls back ad leads within 60 seconds)
 - Tier 3: Complete Package — $1,497/mo (full AI employee, handles everything)
 
-YOUR SYSTEMS (you can check and control all of these):
+YOUR SYSTEMS:
 - Switchboard: AI call platform (Anna = Speed to Lead, Maya = After Hours)
 - n8n: Automation workflows — you can restart broken ones
 - Instantly: Cold email campaigns
@@ -237,11 +241,11 @@ YOUR SYSTEMS (you can check and control all of these):
 - Railway: Infrastructure hosting
 
 YOUR STYLE:
-- Short and direct. 1-3 sentences when on a call.
+- Short and direct. 1-3 sentences max.
 - Do the work, report the result. Don't narrate what you're about to do.
 - Talk like you've worked together for years.
-- When asked about system status — ALWAYS call get_system_status and report real data.
-- Never say "I don't have access to that" — use your tools and get the answer.`;
+- When asked about system status — ALWAYS call get_system_status first.
+- Never say "I don't have access" — use your tools.`;
 }
 
 // ─── MAIN AGENT LOOP ──────────────────────────────────────────────────────────
@@ -250,66 +254,85 @@ export async function runBobAgent(
   conversationId: number,
   userMessage: string
 ): Promise<string> {
+  console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}`);
+
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("[Bob] OPENROUTER_API_KEY not set");
+    return "OPENROUTER_API_KEY is not configured in Railway env vars.";
+  }
+
   // Load tenant + user context
-  const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
-  const user   = await db.query.users.findFirst({ where: eq(users.tenantId, tenantId) });
+  let tenant: any = null;
+  let user: any = null;
+  try {
+    tenant = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1).then(r => r[0]);
+    user   = await db.select().from(users).where(eq(users.tenantId, tenantId)).limit(1).then(r => r[0]);
+  } catch (e: any) {
+    console.error("[Bob] DB lookup error:", e.message);
+  }
 
   // Load conversation history (last 20 messages)
-  const history = await db.query.bobMessages.findMany({
-    where: eq(bobMessages.conversationId, conversationId),
-    orderBy: desc(bobMessages.createdAt),
-    limit: 20,
-  });
-  const historyAsc = [...history].reverse();
+  let historyRows: any[] = [];
+  try {
+    historyRows = await db.select().from(bobMessages)
+      .where(eq(bobMessages.conversationId, conversationId))
+      .orderBy(bobMessages.createdAt)
+      .limit(20);
+  } catch (e: any) {
+    console.error("[Bob] History load error:", e.message);
+  }
 
   const messages: any[] = [
-    ...historyAsc.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+    ...historyRows.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
     { role: "user", content: userMessage },
   ];
 
   const systemPrompt = buildSystemPrompt(tenant, user);
   const model = selectModel(userMessage);
-  const apiKey = process.env.OPENROUTER_API_KEY;
-
-  if (!apiKey) {
-    return "OpenRouter API key not configured. Add OPENROUTER_API_KEY to Railway env vars.";
-  }
+  console.log(`[Bob] Using model: ${model}`);
 
   // Agentic loop — up to 8 iterations
   for (let i = 0; i < 8; i++) {
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model,
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
-        tools: BOB_TOOLS,
-        tool_choice: "auto",
-        max_tokens: 1024,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": process.env.SELF_URL || "https://field-app-production-d5c8.up.railway.app",
+    let response: any;
+    try {
+      response = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          model,
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
+          tools: BOB_TOOLS,
+          tool_choice: "auto",
+          max_tokens: 1024,
         },
-        timeout: 30000,
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": process.env.SELF_URL || "https://field-app-production-d5c8.up.railway.app",
+          },
+          timeout: 30000,
+        }
+      );
+    } catch (e: any) {
+      console.error("[Bob] OpenRouter error:", e?.response?.data || e.message);
+      return `OpenRouter error: ${e?.response?.data?.error?.message || e.message}`;
+    }
 
     const choice = response.data.choices?.[0];
     const msg    = choice?.message;
-
     if (!msg) break;
+
     messages.push(msg);
 
-    // Done — return text
     if (choice.finish_reason === "stop" || !msg.tool_calls?.length) {
+      console.log(`[Bob] Done after ${i + 1} iteration(s)`);
       return msg.content || "Done.";
     }
 
-    // Execute tool calls
     for (const tc of msg.tool_calls) {
-      const args   = JSON.parse(tc.function.arguments || "{}");
+      let args: any = {};
+      try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
       const result = await executeTool(tc.function.name, args);
       messages.push({
         role: "tool",
