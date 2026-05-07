@@ -25,7 +25,7 @@ async function sendSMS(to: string, body: string) {
   }
 }
 
-async function makeCall(to: string, webhookUrl: string) {
+async function makeCall(to: string, webhookUrl: string, clientState?: string) {
   const r = await axios.post(
     "https://api.telnyx.com/v2/calls",
     {
@@ -33,6 +33,8 @@ async function makeCall(to: string, webhookUrl: string) {
       to,
       from: process.env.TELNYX_PHONE_NUMBER,
       webhook_url: webhookUrl,
+      webhook_url_method: "POST",
+      ...(clientState ? { client_state: clientState } : {}),
     },
     { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
   );
@@ -68,7 +70,8 @@ async function startBriefingCall(tenant: any, user: any, briefingType: "morning"
   }
 
   try {
-    const call = await makeCall(phone, `${selfUrl}/api/voice/webhook`);
+    const clientState = Buffer.from(JSON.stringify({ tenantId: tenant.id, briefingType })).toString("base64");
+    const call = await makeCall(phone, `${selfUrl}/api/voice/webhook`, clientState);
     console.log(`[Heartbeat] ${briefingType} call initiated | callControlId: ${call?.call_control_id}`);
   } catch (e: any) {
     console.error(`[Heartbeat] ${briefingType} call failed:`, e?.message);

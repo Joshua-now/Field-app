@@ -16,6 +16,7 @@ import { auditLogMiddleware } from "./middleware/auditLog";
 import { eq } from "drizzle-orm";
 import { bobConversations, bobMessages, bobMemory } from "@shared/schema";
 import { runBobAgent } from "./bob/agent";
+import { handleVoiceWebhook } from "./bob/voice";
 import axios from "axios";
 
 const DEFAULT_TENANT_ID = "default-tenant";
@@ -45,6 +46,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(503).json({ status: "unhealthy" });
     }
   });
+
+  // ── TELNYX VOICE WEBHOOK (public — Telnyx calls this, no JWT) ───────────────
+  app.post("/api/voice/webhook", handleVoiceWebhook);
 
   // ── OPENROUTER DIAGNOSTIC (public — no auth needed) ───────────────────────
   app.get("/api/bob/ping", async (_req, res) => {
