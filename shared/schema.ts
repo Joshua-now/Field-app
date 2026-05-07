@@ -322,3 +322,61 @@ export type InsertServiceChecklist = z.infer<typeof insertServiceChecklistSchema
 
 export type JobChecklistItem = typeof jobChecklistItems.$inferSelect;
 export type InsertJobChecklistItem = z.infer<typeof insertJobChecklistItemSchema>;
+
+// ─── BOB AI ASSISTANT ─────────────────────────────────────────────────────────
+
+export const bobConversations = pgTable("bob_conversations", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  channel: text("channel").default("chat"),          // chat | voice | sms
+  status: text("status").default("open"),            // open | closed
+  summary: text("summary"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_bob_conv_tenant").on(table.tenantId),
+]);
+
+export const bobMessages = pgTable("bob_messages", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  conversationId: integer("conversation_id").references(() => bobConversations.id).notNull(),
+  role: text("role").notNull(),                      // user | assistant | tool
+  content: text("content").notNull(),
+  toolName: text("tool_name"),
+  toolResult: jsonb("tool_result"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_bob_msgs_conv").on(table.conversationId),
+]);
+
+export const bobMemory = pgTable("bob_memory", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  memoryType: text("memory_type").notNull(),         // preference | fact | contact | task
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+  confidence: text("confidence").default("high"),    // high | medium | low
+  source: text("source"),                            // user_stated | inferred | tool_result
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_bob_memory_tenant").on(table.tenantId),
+]);
+
+export const bobConversationsRelations = relations(bobConversations, ({ many }) => ({
+  messages: many(bobMessages),
+}));
+
+export const bobMessagesRelations = relations(bobMessages, ({ one }) => ({
+  conversation: one(bobConversations, {
+    fields: [bobMessages.conversationId],
+    references: [bobConversations.id],
+  }),
+}));
+
+// Types
+export type BobConversation = typeof bobConversations.$inferSelect;
+export type BobMessage = typeof bobMessages.$inferSelect;
+export type BobMemory = typeof bobMemory.$inferSelect;

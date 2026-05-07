@@ -1,12 +1,13 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { 
-  LayoutDashboard, 
-  CalendarDays, 
-  Briefcase, 
-  Users, 
-  Contact, 
-  Package, 
+import {
+  LayoutDashboard,
+  CalendarDays,
+  Briefcase,
+  Users,
+  Contact,
+  Package,
+  Bot,
   LogOut,
   Menu,
   X
@@ -28,15 +29,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { name: "Technicians", href: "/technicians", icon: Users },
     { name: "Customers", href: "/customers", icon: Contact },
     { name: "Inventory", href: "/inventory", icon: Package },
+    { name: "Bob", href: "/bob", icon: Bot },
   ];
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar for Desktop */}
+      {/* Sidebar — Desktop */}
       <div className="hidden md:flex flex-col w-64 bg-card border-r border-border/50 shadow-sm fixed h-full z-20">
         <div className="p-6 border-b border-border/50">
           <h1 className="text-xl font-bold font-display text-primary flex items-center gap-2">
-            <span className="bg-primary text-primary-foreground p-1 rounded-md">{appConfig.companyName.slice(0, 2).toUpperCase()}</span>
+            <span className="bg-primary text-primary-foreground p-1 rounded-md">
+              {appConfig.companyName.slice(0, 2).toUpperCase()}
+            </span>
             {appConfig.companyName}
           </h1>
         </div>
@@ -48,8 +52,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Link key={item.name} href={item.href}>
                 <div className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group",
-                  isActive 
-                    ? "bg-primary/10 text-primary shadow-sm" 
+                  isActive
+                    ? "bg-primary/10 text-primary shadow-sm"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}>
                   <item.icon className={cn(
@@ -66,19 +70,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="p-4 border-t border-border/50">
           <div className="flex items-center gap-3 px-3 py-3 mb-2">
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-              {user?.firstName?.[0] || 'U'}
+              {user?.firstName?.[0] || "U"}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">
                 {user?.firstName} {user?.lastName}
               </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user?.email}
-              </p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
             </div>
           </div>
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={() => logout()}
           >
@@ -88,21 +90,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
-      {/* Mobile Sidebar */}
+      {/* Sidebar — Mobile */}
       <div className={cn(
         "fixed inset-y-0 left-0 w-64 bg-card border-r border-border z-50 transform transition-transform duration-300 ease-in-out md:hidden",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="flex items-center justify-between p-6 border-b border-border/50">
-          <h1 className="text-xl font-bold font-display text-primary">FieldTech</h1>
+          <h1 className="text-xl font-bold font-display text-primary">Contractor OS</h1>
           <button onClick={() => setIsMobileMenuOpen(false)} className="text-muted-foreground">
             <X className="w-6 h-6" />
           </button>
@@ -112,8 +114,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <Link key={item.name} href={item.href} onClick={() => setIsMobileMenuOpen(false)}>
               <div className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                location === item.href 
-                  ? "bg-primary/10 text-primary" 
+                location === item.href
+                  ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-muted"
               )}>
                 <item.icon className="w-5 h-5" />
@@ -124,17 +126,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
       </div>
 
-      {/* Main Content */}
+      {/* Main content */}
       <div className="flex-1 md:ml-64 w-full">
-        {/* Mobile Header */}
+        {/* Mobile header */}
         <header className="md:hidden bg-card border-b border-border p-4 flex items-center justify-between sticky top-0 z-10">
-          <h1 className="font-bold font-display text-lg">FieldTech</h1>
+          <h1 className="font-bold font-display text-lg">Contractor OS</h1>
           <button onClick={() => setIsMobileMenuOpen(true)}>
             <Menu className="w-6 h-6 text-foreground" />
           </button>
         </header>
 
-        <main className="p-4 md:p-8 max-w-7xl mx-auto animate-in">
+        <main className="p-4 md:p-8 max-w-7xl mx-auto">
           {children}
         </main>
       </div>

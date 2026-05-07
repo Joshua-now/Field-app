@@ -13,6 +13,8 @@ import { tenantContextMiddleware, requireTenant } from "./middleware/tenantConte
 import { db, getHealthStatus } from "./db";
 import { securityHeaders, requestIdMiddleware } from "./middleware/security";
 import { auditLogMiddleware } from "./middleware/auditLog";
+import { eq } from "drizzle-orm";
+import { bobConversations, bobMessages, bobMemory } from "@shared/schema";
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
@@ -208,6 +210,59 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       { isCompleted: req.body.isCompleted, notes: req.body.notes }
     );
     res.json(item);
+  });
+
+  // ── BOB AI ASSISTANT ─────────────────────────────────────────────────────
+  app.get("/api/bob/conversations", async (req, res) => {
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    const result = await db.query.bobConversations.findMany({
+      where: (t, { eq }) => eq(t.tenantId, tenantId),
+      orderBy: (t, { desc }) => [desc(t.updatedAt)],
+      limit: 50,
+    });
+    res.json(result);
+  });
+
+  app.post("/api/bob/conversations", async (req, res) => {
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    const [conv] = await db.insert(bobConversations).values({ tenantId, channel: "chat", status: "open" }).returning();
+    res.status(201).json(conv);
+  });
+
+  app.get("/api/bob/conversations/:id/messages", async (req, res) => {
+    const msgs = await db.query.bobMessages.findMany({
+      where: (t, { eq }) => eq(t.conversationId, Number(req.params.id)),
+      orderBy: (t, { asc }) => [asc(t.createdAt)],
+    });
+    res.json(msgs);
+  });
+
+  app.post("/api/bob/conversations/:id/messages", async (req, res) => {
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    const conversationId = Number(req.params.id);
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ message: "content required" });
+
+    await db.insert(bobMessages).values({ tenantId, conversationId, role: "user", content });
+
+    const reply = `Got it, Joshua. Full agent coming in Phase 3. You said: "${content}"`;
+    const [msg] = await db.insert(bobMessages).values({
+      tenantId, conversationId, role: "assistant", content: reply,
+    }).returning();
+
+    await db.update(bobConversations).set({ updatedAt: new Date() })
+      .where(eq(bobConversations.id, conversationId));
+
+    res.status(201).json(msg);
+  });
+
+  app.get("/api/bob/memory", async (req, res) => {
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    const rows = await db.query.bobMemory.findMany({
+      where: (t, { eq }) => eq(t.tenantId, tenantId),
+      orderBy: (t, { desc }) => [desc(t.updatedAt)],
+    });
+    res.json(rows);
   });
 
   // ── ERROR HANDLER (must be last) ──────────────────────────────────────────
