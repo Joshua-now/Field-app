@@ -274,6 +274,71 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(rows);
   });
 
+
+  // ── DEMO SEED (one-time, authenticated) ──────────────────────────────────
+  app.post("/api/admin/seed-demo", async (req, res) => {
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    try {
+      const { technicians: techTable, customers: custTable, jobs: jobTable } = await import("@shared/schema");
+      const { tenants } = await import("@shared/models/auth");
+      const bcrypt = await import("bcryptjs");
+      const { eq: eqOp } = await import("drizzle-orm");
+
+      // Guard: don't re-seed if data already exists
+      const existingTechs = await db.select().from(techTable).where(eqOp(techTable.tenantId, tenantId)).limit(1);
+      if (existingTechs.length > 0) {
+        return res.status(409).json({ message: "Demo data already exists for this tenant. Delete existing records first." });
+      }
+
+      const tenant = await db.select().from(tenants).where(eqOp(tenants.id, tenantId)).limit(1).then(r => r[0]);
+      if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+
+      const pwHash = await bcrypt.hash("demo1234", 10);
+
+      const d = (offsetDays: number) => {
+        const dt = new Date(); dt.setDate(dt.getDate() + offsetDays);
+        return dt.toISOString().split("T")[0];
+      };
+
+      // Technicians
+      const [marcus, priya, darnell] = await Promise.all([
+        db.insert(techTable).values({ tenantId, email: "marcus.hayes@demo.com", passwordHash: pwHash, firstName: "Marcus", lastName: "Hayes", phone: "(813) 555-0142", employeeId: "TECH-001", specialties: ["HVAC","Refrigeration"], certifications: ["EPA 608","NATE Certified"], isActive: true }).returning().then(r => r[0]),
+        db.insert(techTable).values({ tenantId, email: "priya.nguyen@demo.com", passwordHash: pwHash, firstName: "Priya", lastName: "Nguyen", phone: "(813) 555-0187", employeeId: "TECH-002", specialties: ["Plumbing","Water Heaters"], certifications: ["Florida Plumbing License"], isActive: true }).returning().then(r => r[0]),
+        db.insert(techTable).values({ tenantId, email: "darnell.brooks@demo.com", passwordHash: pwHash, firstName: "Darnell", lastName: "Brooks", phone: "(813) 555-0231", employeeId: "TECH-003", specialties: ["Electrical","Generators"], certifications: ["Florida Electrical License"], isActive: true }).returning().then(r => r[0]),
+      ]);
+
+      // Customers
+      const [linda, bob, carol, james, patricia] = await Promise.all([
+        db.insert(custTable).values({ tenantId, firstName: "Linda", lastName: "Carver", email: "linda.carver@gmail.com", phone: "(813) 555-1201", addressStreet: "4821 Palma Ceia Dr", addressCity: "Tampa", addressState: "FL", addressZip: "33629", tags: ["VIP","Repeat"], notes: "Has two AC units — always ask about the upstairs unit.", customerSince: "2023-03-15", totalJobsCompleted: 7, lifetimeValue: "2840.00" }).returning().then(r => r[0]),
+        db.insert(custTable).values({ tenantId, firstName: "Bob", lastName: "Stanton", email: "bstanton@outlook.com", phone: "(813) 555-0934", addressStreet: "1102 Bayshore Blvd", addressCity: "Tampa", addressState: "FL", addressZip: "33606", gateCode: "#4421", tags: ["Commercial"], notes: "Condo unit 8B. Park in visitor spot, gate code #4421.", customerSince: "2024-01-08", totalJobsCompleted: 3, lifetimeValue: "1150.00" }).returning().then(r => r[0]),
+        db.insert(custTable).values({ tenantId, firstName: "Carol", lastName: "Mendez", email: "carol.mendez@yahoo.com", phone: "(813) 555-2876", addressStreet: "7603 Gunn Hwy", addressCity: "Tampa", addressState: "FL", addressZip: "33625", tags: ["New Customer"], notes: "Referred by Linda Carver.", customerSince: d(0), totalJobsCompleted: 0, lifetimeValue: "0.00" }).returning().then(r => r[0]),
+        db.insert(custTable).values({ tenantId, firstName: "James", lastName: "Whitfield", email: "jwhitfield@protonmail.com", phone: "(813) 555-3318", addressStreet: "2250 N Dale Mabry Hwy", addressCity: "Tampa", addressState: "FL", addressZip: "33607", accessNotes: "Dog in yard — call before entering gate.", tags: ["Repeat"], notes: "Has a pit bull named Zeus. Call ahead.", customerSince: "2023-11-20", totalJobsCompleted: 4, lifetimeValue: "1890.00" }).returning().then(r => r[0]),
+        db.insert(custTable).values({ tenantId, firstName: "Patricia", lastName: "Drummond", email: "pat.drummond@gmail.com", phone: "(813) 555-4502", addressStreet: "9312 Lazy Lane", addressCity: "Tampa", addressState: "FL", addressZip: "33614", tags: ["Senior","VIP"], notes: "Elderly customer, needs extra time. Always send ETA.", customerSince: "2022-06-10", totalJobsCompleted: 12, lifetimeValue: "4200.00" }).returning().then(r => r[0]),
+      ]);
+
+      // Jobs
+      await Promise.all([
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-001", customerId: linda.id, technicianId: marcus.id, scheduledDate: d(0), scheduledTimeStart: "09:00:00", scheduledTimeEnd: "11:00:00", estimatedDurationMinutes: 120, serviceType: "HVAC Maintenance", priority: "normal", description: "Annual AC tune-up. Customer reports clicking noise on startup.", specialInstructions: "Check both units — upstairs and downstairs.", status: "in_progress", startedAt: new Date(), totalCost: "185.00", paymentStatus: "pending" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-002", customerId: bob.id, technicianId: priya.id, scheduledDate: d(0), scheduledTimeStart: "11:30:00", scheduledTimeEnd: "13:00:00", estimatedDurationMinutes: 90, serviceType: "Plumbing Repair", priority: "urgent", description: "Slow drain in master bath. Water pooling 5+ minutes.", specialInstructions: "Condo 8B — gate code #4421, visitor parking.", status: "en_route", enRouteAt: new Date(), totalCost: "225.00", paymentStatus: "pending" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-003", customerId: carol.id, technicianId: marcus.id, scheduledDate: d(0), scheduledTimeStart: "14:00:00", scheduledTimeEnd: "15:30:00", estimatedDurationMinutes: 90, serviceType: "AC Installation", priority: "normal", description: "Install new Carrier 3-ton mini-split. Unit is on-site.", status: "scheduled", totalCost: "1850.00", paymentStatus: "invoiced" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-004", customerId: james.id, technicianId: darnell.id, scheduledDate: d(1), scheduledTimeStart: "08:00:00", scheduledTimeEnd: "10:00:00", estimatedDurationMinutes: 120, serviceType: "Electrical Inspection", priority: "normal", description: "Annual panel inspection. Customer adding a hot tub.", specialInstructions: "Dog in yard — call customer before entering gate.", status: "scheduled", totalCost: "350.00", paymentStatus: "pending" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-005", customerId: patricia.id, technicianId: priya.id, scheduledDate: d(1), scheduledTimeStart: "10:30:00", scheduledTimeEnd: "12:00:00", estimatedDurationMinutes: 90, serviceType: "Water Heater Replacement", priority: "urgent", description: "40-gal leaking from bottom. 11 years old, replacement approved.", specialInstructions: "Senior customer — send ETA text 30 min before arrival.", status: "scheduled", totalCost: "1240.00", paymentStatus: "invoiced" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-006", customerId: linda.id, technicianId: darnell.id, scheduledDate: d(2), scheduledTimeStart: "09:00:00", scheduledTimeEnd: "11:00:00", estimatedDurationMinutes: 120, serviceType: "Generator Installation", priority: "normal", description: "Install whole-home Generac 22kW standby. Unit on-site in garage.", status: "scheduled", totalCost: "3200.00", paymentStatus: "invoiced" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-007", customerId: james.id, technicianId: marcus.id, scheduledDate: d(-1), scheduledTimeStart: "10:00:00", scheduledTimeEnd: "12:00:00", estimatedDurationMinutes: 120, serviceType: "HVAC Repair", priority: "urgent", description: "AC not cooling — refrigerant leak at evaporator coil.", status: "completed", completedAt: new Date(Date.now() - 86400000), actualDurationMinutes: 105, workPerformed: "Located leak at evaporator coil, repaired, recharged with 2 lbs R-410A. System cooling at 72°F.", totalCost: "485.00", paymentStatus: "paid", customerRating: 5, customerFeedback: "Marcus was awesome — on time and AC is ice cold!" }),
+        db.insert(jobTable).values({ tenantId, jobNumber: "JOB-2405-008", customerId: patricia.id, technicianId: priya.id, scheduledDate: d(-3), scheduledTimeStart: "09:30:00", scheduledTimeEnd: "11:00:00", estimatedDurationMinutes: 90, serviceType: "Drain Cleaning", priority: "normal", description: "Main line slow drain. Hydro-jet service.", status: "completed", completedAt: new Date(Date.now() - 3 * 86400000), actualDurationMinutes: 80, workPerformed: "Camera found grease buildup at 35ft. Hydro-jet cleared blockage.", totalCost: "320.00", paymentStatus: "paid", customerRating: 4, customerFeedback: "Very professional. Priya explained exactly what she found.", requiresFollowup: true, followupDate: d(27), followupReason: "30-day drain check per customer agreement" }),
+      ]);
+
+      res.json({
+        message: "Demo seed complete!",
+        created: { technicians: 3, customers: 5, jobs: 8 },
+        technicianPin: "demo1234",
+      });
+    } catch (err: any) {
+      console.error("[Seed] Error:", err?.message);
+      res.status(500).json({ message: err?.message || "Seed failed" });
+    }
+  });
+
   // ── ERROR HANDLER (must be last) ──────────────────────────────────────────
   app.use(errorHandler);
 
