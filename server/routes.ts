@@ -16,6 +16,7 @@ import { auditLogMiddleware } from "./middleware/auditLog";
 import { eq } from "drizzle-orm";
 import { bobConversations, bobMessages, bobMemory } from "@shared/schema";
 import { runBobAgent } from "./bob/agent";
+import axios from "axios";
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
@@ -42,6 +43,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(code).json({ ...health, timestamp: new Date().toISOString() });
     } catch {
       res.status(503).json({ status: "unhealthy" });
+    }
+  });
+
+  // ── OPENROUTER DIAGNOSTIC (public — no auth needed) ───────────────────────
+  app.get("/api/bob/ping", async (_req, res) => {
+    const rawKey = process.env.OPENROUTER_API_KEY || "";
+    const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "").replace(/^["'`]|["'`]$/g, "").trim();
+    const keyInfo = {
+      length: apiKey.length,
+      prefix: apiKey.slice(0, 14) + "...",
+      startsWithSkOr: apiKey.startsWith("sk-or-"),
+      empty: apiKey.length === 0,
+    };
+    if (!apiKey) return res.status(500).json({ ok: false, keyInfo, error: "OPENROUTER_API_KEY not set or empty" });
+    try {
+      const r = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "say hi" }], max_tokens: 5 },
+        { headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, timeout: 15000 }
+      );
+      res.json({ ok: true, keyInfo, reply: r.data?.choices?.[0]?.message?.content });
+    } catch (e: any) {
+      const errData = e?.response?.data;
+      res.status(500).json({ ok: false, keyInfo, httpStatus: e?.response?.status, error: errData || e.message });
     }
   });
 
@@ -275,28 +300,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
 
-
-  // ── BOB OPENROUTER DIAGNOSTIC ─────────────────────────────────────────────
-  app.get("/api/bob/ping", async (req, res) => {
-    const rawKey = process.env.OPENROUTER_API_KEY || "";
-    const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "");
-    if (!apiKey) return res.status(500).json({ ok: false, error: "OPENROUTER_API_KEY not set" });
-
-    const keyInfo = { length: apiKey.length, prefix: apiKey.slice(0, 12) + "...", startsWithSkOr: apiKey.startsWith("sk-or-") };
-
-    try {
-      const { default: axios } = await import("axios");
-      const r = await axios.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "say hi" }], max_tokens: 5 },
-        { headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, timeout: 15000 }
-      );
-      res.json({ ok: true, keyInfo, status: r.status, reply: r.data?.choices?.[0]?.message?.content });
-    } catch (e: any) {
-      const errData = e?.response?.data;
-      res.status(500).json({ ok: false, keyInfo, httpStatus: e?.response?.status, error: errData || e.message });
-    }
-  });
 
   // ── DEMO SEED (one-time, authenticated) ──────────────────────────────────
   app.post("/api/admin/seed-demo", async (req, res) => {
