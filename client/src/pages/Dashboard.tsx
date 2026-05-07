@@ -1,6 +1,6 @@
 import { useJobs } from "@/hooks/use-jobs";
 import { useTechnicians } from "@/hooks/use-technicians";
-import { useAuth } from "@/hooks/use-auth";
+import { getToken } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -25,7 +25,6 @@ import { useQueryClient } from "@tanstack/react-query";
 export default function Dashboard() {
   const { data: jobs, isLoading: loadingJobs } = useJobs();
   const { data: technicians, isLoading: loadingTechs } = useTechnicians();
-  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [seeding, setSeeding] = useState(false);
   const [seedDone, setSeedDone] = useState(false);
