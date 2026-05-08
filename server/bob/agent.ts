@@ -42,7 +42,11 @@ function selectModel(input: string): string {
 
 async function getTodaySchedule(tenantId: string, technicianName?: string): Promise<any> {
   try {
-    const today = new Date().toISOString().split("T")[0];
+    // Use local date in Eastern time (UTC-4/UTC-5) — railway runs UTC so we need offset
+    const now = new Date();
+    // Prefer TIMEZONE env var (e.g. "America/New_York"); fall back to UTC
+    const tz = process.env.TENANT_TIMEZONE || "America/New_York";
+    const today = now.toLocaleDateString("en-CA", { timeZone: tz }); // "YYYY-MM-DD" format
     const result = await db.query.jobs.findMany({
       where: and(eq(jobs.tenantId, tenantId), eq(jobs.scheduledDate, today)),
       with: { customer: true, technician: true },
@@ -644,7 +648,8 @@ async function executeTool(name: string, args: any, tenantId: string, userRole =
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 function buildSystemPrompt(tenant: any, user: any, userRole = "staff"): string {
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const tz = process.env.TENANT_TIMEZONE || "America/New_York";
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: tz });
   const companyName = tenant?.companyName || "this contractor business";
   const userName = user?.firstName || "there";
   const isOwnerOrAdmin = ["owner", "admin"].includes(userRole);

@@ -362,6 +362,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       throw new ValidationError("Message too long (max 4000 characters)");
     }
 
+    // Verify this conversation belongs to the authenticated tenant (prevents cross-tenant injection)
+    const conv = await db.query.bobConversations.findFirst({
+      where: (t: any, { and: a, eq: e }: any) => a(e(t.id, conversationId), e(t.tenantId, tenantId)),
+    });
+    if (!conv) throw new NotFoundError("Conversation");
+
     // Pass the authenticated user's role so Bob enforces tool access correctly
     const callerRole = (req as any).user?.role ?? "staff";
 
