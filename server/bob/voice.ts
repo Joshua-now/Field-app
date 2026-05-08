@@ -152,6 +152,8 @@ RULES FOR VOICE:
 
 // ─── IN-MEMORY CALL STATE ─────────────────────────────────────────────────────
 
+const MAX_VOICE_TURNS = 12; // Max back-and-forth exchanges before wrapping up
+
 interface CallState {
   tenantId: string;
   briefingType: "morning" | "evening";
@@ -159,6 +161,8 @@ interface CallState {
   history: { role: string; content: string }[];
   briefingDone: boolean;
   silenceCount: number;
+  ending: boolean;      // true = goodbye in progress, suppress further listen()
+  turnCount: number;    // number of contractor utterances so far
 }
 
 const activeCalls = new Map<string, CallState>();
@@ -237,6 +241,8 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
           history: [],
           briefingDone: false,
           silenceCount: 0,
+          ending: false,
+          turnCount: 0,
         });
 
         const briefingText = await buildBriefingText(tenantId, briefingType, scheduleContext);
@@ -249,9 +255,9 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
       }
 
       case "call.speak.ended": {
-        // After speaking, listen for contractor response
+        // After speaking, listen — but not if we're wrapping up
         const state = activeCalls.get(callControlId);
-        if (state) await listen(callControlId);
+        if (state && !state.ending) await listen(callControlId);
         break;
       }
 
@@ -266,6 +272,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
         if (!transcript || transcript.trim().length < 2) {
           state.silenceCount = (state.silenceCount || 0) + 1;
           if (state.silenceCount >= 2) {
+            state.ending = true;
             await speak(callControlId, "Sounds like we got cut off. I'll let you go. Bob out.");
             setTimeout(async () => {
               try { await hangup(callControlId); } catch {}
@@ -278,10 +285,23 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
         }
 
         state.silenceCount = 0; // Reset on valid input
+        state.turnCount = (state.turnCount || 0) + 1;
 
         // Check for goodbye
         if (isGoodbye(transcript)) {
+          state.ending = true;
           await speak(callControlId, "Sounds good. Have a great one. Bob out.");
+          setTimeout(async () => {
+            try { await hangup(callControlId); } catch {}
+            activeCalls.delete(callControlId);
+          }, 4000);
+          return;
+        }
+
+        // Max conversation length guard — wrap up gracefully
+        if (state.turnCount >= MAX_VOICE_TURNS) {
+          state.ending = true;
+          await speak(callControlId, "We've been at it for a while — I'll let you get back to it. Check the app for anything else. Bob out.");
           setTimeout(async () => {
             try { await hangup(callControlId); } catch {}
             activeCalls.delete(callControlId);

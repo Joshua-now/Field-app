@@ -349,7 +349,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(msgs);
   }));
 
-  app.post("/api/bob/conversations/:id/messages", asyncHandler(async (req, res) => {
+  app.post("/api/bob/conversations/:id/messages", isAuthenticated, asyncHandler(async (req, res) => {
     const tenantId = getTenantId(req);
     const conversationId = Number(req.params.id);
     if (isNaN(conversationId)) throw new ValidationError("Invalid conversation ID");
@@ -362,11 +362,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       throw new ValidationError("Message too long (max 4000 characters)");
     }
 
+    // Pass the authenticated user's role so Bob enforces tool access correctly
+    const callerRole = (req as any).user?.role ?? "staff";
+
     await db.insert(bobMessages).values({ tenantId, conversationId, role: "user", content });
 
     let reply: string;
     try {
-      reply = await runBobAgent(tenantId, conversationId, content);
+      reply = await runBobAgent(tenantId, conversationId, content, callerRole);
     } catch (err: any) {
       console.error("[Bob] Agent error:", err?.message);
       reply = "I hit an error on my end — check the server logs.";

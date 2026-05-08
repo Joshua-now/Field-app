@@ -86,30 +86,50 @@ export function startHeartbeat() {
   // Morning briefing — 10:00 UTC = 6:00 AM EDT
   cron.schedule("0 10 * * *", async () => {
     console.log("[Heartbeat] Morning briefing...");
-    const activeTenants = await db.query.tenants.findMany({
-      where: (t, { eq }) => eq(t.status, "active"),
-    });
-    for (const tenant of activeTenants) {
-      if (!tenant.bobEnabled || !(tenant as any).briefingEnabled) continue;
-      const user = await db.query.users.findFirst({
-        where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
+    let activeTenants: any[] = [];
+    try {
+      activeTenants = await db.query.tenants.findMany({
+        where: (t, { eq }) => eq(t.status, "active"),
       });
-      await startBriefingCall(tenant, user, "morning");
+    } catch (e: any) {
+      console.error("[Heartbeat] Failed to load tenants for morning briefing:", e.message);
+      return;
+    }
+    for (const tenant of activeTenants) {
+      try {
+        if (!tenant.bobEnabled || !(tenant as any).briefingEnabled) continue;
+        const user = await db.query.users.findFirst({
+          where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
+        });
+        await startBriefingCall(tenant, user, "morning");
+      } catch (e: any) {
+        console.error(`[Heartbeat] Morning briefing failed for tenant ${tenant.id}:`, e.message);
+      }
     }
   });
 
   // Evening briefing — 22:00 UTC = 6:00 PM EDT
   cron.schedule("0 22 * * *", async () => {
     console.log("[Heartbeat] Evening briefing...");
-    const activeTenants = await db.query.tenants.findMany({
-      where: (t, { eq }) => eq(t.status, "active"),
-    });
-    for (const tenant of activeTenants) {
-      if (!tenant.bobEnabled || !(tenant as any).briefingEnabled) continue;
-      const user = await db.query.users.findFirst({
-        where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
+    let activeTenants: any[] = [];
+    try {
+      activeTenants = await db.query.tenants.findMany({
+        where: (t, { eq }) => eq(t.status, "active"),
       });
-      await startBriefingCall(tenant, user, "evening");
+    } catch (e: any) {
+      console.error("[Heartbeat] Failed to load tenants for evening briefing:", e.message);
+      return;
+    }
+    for (const tenant of activeTenants) {
+      try {
+        if (!tenant.bobEnabled || !(tenant as any).briefingEnabled) continue;
+        const user = await db.query.users.findFirst({
+          where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
+        });
+        await startBriefingCall(tenant, user, "evening");
+      } catch (e: any) {
+        console.error(`[Heartbeat] Evening briefing failed for tenant ${tenant.id}:`, e.message);
+      }
     }
   });
 
@@ -125,15 +145,16 @@ export function startHeartbeat() {
           where: (t, { eq }) => eq(t.status, "active"),
         });
         for (const tenant of activeTenants) {
-          if (!tenant.bobEnabled) continue;
-          const user = await db.query.users.findFirst({
-            where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
-          });
-          const phone = tenant.phone;
-          if (!phone) continue;
-          const msg = `Bob health sweep: ${down.map(d => `${d.name} is DOWN`).join(", ")}. Check Railway.`;
-          await sendSMS(phone, msg.substring(0, 320));
-          console.log(`[Heartbeat] Alert SMS sent to ${phone}`);
+          try {
+            if (!tenant.bobEnabled) continue;
+            const phone = tenant.phone;
+            if (!phone) continue;
+            const msg = `Bob health sweep: ${down.map((d: any) => `${d.name} is DOWN`).join(", ")}. Check Railway.`;
+            await sendSMS(phone, msg.substring(0, 320));
+            console.log(`[Heartbeat] Alert SMS sent to ${phone}`);
+          } catch (e: any) {
+            console.error(`[Heartbeat] Health alert SMS failed for tenant ${tenant.id}:`, e.message);
+          }
         }
       } else {
         console.log("[Heartbeat] All services healthy");

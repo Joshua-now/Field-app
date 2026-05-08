@@ -584,66 +584,85 @@ const BOB_TOOLS = [
 
 // ─── TOOL EXECUTOR ────────────────────────────────────────────────────────────
 async function executeTool(name: string, args: any, tenantId: string, userRole = "staff"): Promise<any> {
-  console.log(`[Bob] tool: ${name}`, JSON.stringify(args));
-  switch (name) {
-    // Field reads
-    case "get_today_schedule":
-      return getTodaySchedule(tenantId, args.technician_name);
-    case "get_job_detail":
-      return getJobDetail(tenantId, args.job_number);
-    case "find_customer":
-      return findCustomer(tenantId, args.name);
-    // Field writes
-    case "update_job_status":
-      return updateJobStatusFn(tenantId, args.job_number, args.new_status);
-    case "send_sms_to_customer":
-      return sendSMSToCustomer(tenantId, args.customer_phone, args.customer_name, args.message);
-    case "add_job_note":
-      return addJobNoteFn(tenantId, Number(args.job_id), args.note_text);
-    // Infra
-    case "get_system_status": {
-      const [railway, switchboard, n8n] = await Promise.all([
-        checkRailwayServices(),
-        getSwitchboardStatus(),
-        getN8nWorkflows(),
-      ]);
-      return { railway, switchboard, n8n };
+  console.log(`[Bob] tool: ${name} | role: ${userRole}`, JSON.stringify(args));
+  try {
+    switch (name) {
+      // Field reads
+      case "get_today_schedule":
+        return await getTodaySchedule(tenantId, args.technician_name);
+      case "get_job_detail":
+        return await getJobDetail(tenantId, args.job_number);
+      case "find_customer":
+        return await findCustomer(tenantId, args.name);
+      // Field writes
+      case "update_job_status":
+        return await updateJobStatusFn(tenantId, args.job_number, args.new_status);
+      case "send_sms_to_customer":
+        return await sendSMSToCustomer(tenantId, args.customer_phone, args.customer_name, args.message);
+      case "add_job_note":
+        return await addJobNoteFn(tenantId, Number(args.job_id), args.note_text);
+      // Infra
+      case "get_system_status": {
+        const [railway, switchboard, n8n] = await Promise.all([
+          checkRailwayServices(),
+          getSwitchboardStatus(),
+          getN8nWorkflows(),
+        ]);
+        return { railway, switchboard, n8n };
+      }
+      case "get_instantly_campaigns":
+        return await getInstantlyCampaigns();
+      case "get_n8n_workflows":
+        return await getN8nWorkflows();
+      case "restart_n8n_workflow":
+        return await triggerN8nWorkflow(args.workflow_name, args.action || "restart");
+      case "search_ghl_contact":
+        return await searchGHLContacts(args.name);
+      // ── Marketing tools (owner/admin only) ──────────────────────────────────
+      case "get_lead_summary": {
+        const { getLeadSummary } = await import("./marketing");
+        return await getLeadSummary(tenantId, userRole, args.days ?? 7);
+      }
+      case "get_cold_leads": {
+        const { getColdLeads } = await import("./marketing");
+        return await getColdLeads(tenantId, userRole, args.limit ?? 10);
+      }
+      case "update_lead_status": {
+        const { updateLeadStatus } = await import("./marketing");
+        return await updateLeadStatus(tenantId, userRole, Number(args.lead_id), args.status, args.notes);
+      }
+      default:
+        return { error: `Unknown tool: ${name}` };
     }
-    case "get_instantly_campaigns":
-      return getInstantlyCampaigns();
-    case "get_n8n_workflows":
-      return getN8nWorkflows();
-    case "restart_n8n_workflow":
-      return triggerN8nWorkflow(args.workflow_name, args.action || "restart");
-    case "search_ghl_contact":
-      return searchGHLContacts(args.name);
-    // ── Marketing tools (owner/admin only) ──────────────────────────────────
-    case "get_lead_summary": {
-      const { getLeadSummary } = await import("./marketing");
-      return getLeadSummary(tenantId, userRole, args.days ?? 7);
-    }
-    case "get_cold_leads": {
-      const { getColdLeads } = await import("./marketing");
-      return getColdLeads(tenantId, userRole, args.limit ?? 10);
-    }
-    case "update_lead_status": {
-      const { updateLeadStatus } = await import("./marketing");
-      return updateLeadStatus(tenantId, userRole, Number(args.lead_id), args.status, args.notes);
-    }
-    default:
-      return { error: `Unknown tool: ${name}` };
+  } catch (e: any) {
+    // Return errors as strings so the model can relay them gracefully instead of crashing the loop
+    const msg = e?.message || "An unexpected error occurred.";
+    console.error(`[Bob] Tool "${name}" threw:`, msg);
+    return { error: msg };
   }
 }
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-function buildSystemPrompt(tenant: any, user: any): string {
+function buildSystemPrompt(tenant: any, user: any, userRole = "staff"): string {
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const companyName = tenant?.companyName || "this contractor business";
   const userName = user?.firstName || "there";
+  const isOwnerOrAdmin = ["owner", "admin"].includes(userRole);
+
+  const marketingSection = isOwnerOrAdmin ? `
+- Pull ad lead summaries (get_lead_summary) — show total, booked, cold, by platform
+- List cold leads needing follow-up (get_cold_leads)
+- Update lead status (update_lead_status) after confirming
+
+MARKETING EXAMPLES — call tools immediately for owners/admins:
+- "How are my leads doing?" → get_lead_summary (7 days)
+- "Who needs a follow-up?" → get_cold_leads
+- "Mark lead 12 as booked" → confirm lead ID and status, then update_lead_status
+` : "";
 
   return `You are Bob, the AI field operations assistant for ${companyName}. Today is ${today}.
 
-You work alongside ${userName} and have direct access to the job schedule, customer records, and all connected systems.
+You work alongside ${userName} (role: ${userRole}) and have direct access to the job schedule, customer records, and all connected systems.
 
 WHAT YOU CAN DO:
 - Look up today's schedule, job details, customer info, addresses, gate codes, special instructions
@@ -653,7 +672,7 @@ WHAT YOU CAN DO:
 - Check system health (Railway, n8n, Switchboard)
 - Manage n8n workflows
 - Pull Instantly.ai campaign data
-- Search GoHighLevel CRM
+- Search GoHighLevel CRM${marketingSection}
 
 FIELD QUERY EXAMPLES — call tools immediately, no narration:
 - "What's my next job?" → get_today_schedule, pick the next scheduled one
@@ -684,9 +703,10 @@ YOUR STYLE:
 export async function runBobAgent(
   tenantId: string,
   conversationId: number,
-  userMessage: string
+  userMessage: string,
+  callerRole = "staff"   // Role of the authenticated user making this request
 ): Promise<string> {
-  console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}`);
+  console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}, role: ${callerRole}`);
 
   const rawKey = process.env.OPENROUTER_API_KEY || "";
   const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "").replace(/^["'`]|["'`]$/g, "").trim();
@@ -732,7 +752,7 @@ export async function runBobAgent(
     knowledgeContext = await buildKnowledgeContext(tenantId, userMessage);
   } catch { /* knowledge module optional */ }
 
-  const systemPrompt = buildSystemPrompt(tenant, user) + (knowledgeContext ? "\n\n" + knowledgeContext : "");
+  const systemPrompt = buildSystemPrompt(tenant, user, callerRole) + (knowledgeContext ? "\n\n" + knowledgeContext : "");
   const model = selectModel(userMessage);
   console.log(`[Bob] Using model: ${model}${knowledgeContext ? " (+knowledge)" : ""}`);
 
@@ -779,7 +799,7 @@ export async function runBobAgent(
     for (const tc of msg.tool_calls) {
       let args: any = {};
       try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
-      const result = await executeTool(tc.function.name, args, tenantId, user?.role ?? "staff");
+      const result = await executeTool(tc.function.name, args, tenantId, callerRole);
       messages.push({
         role: "tool",
         tool_call_id: tc.id,
