@@ -29,7 +29,7 @@ async function makeCall(to: string, webhookUrl: string, clientState?: string) {
   const r = await axios.post(
     "https://api.telnyx.com/v2/calls",
     {
-      connection_id: process.env.TELNYX_CONNECTION_ID,
+      connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_APP_ID,
       to,
       from: process.env.TELNYX_PHONE_NUMBER,
       webhook_url: webhookUrl,
