@@ -393,6 +393,90 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(rows);
   }));
 
+  // ── AD LEADS (owner/admin UI + public intake webhook) ────────────────────
+
+  // Public webhook — receives leads from Speed-to-Lead, web forms, Google/Meta
+  // Auth: tenant API key in header (X-Tenant-Key) — no JWT required
+  app.post("/api/leads/inbound", asyncHandler(async (req, res) => {
+    // Identify tenant by API key or slug passed in body
+    const tenantKey = req.headers["x-tenant-id"] as string || req.body.tenantId;
+    if (!tenantKey) throw new ValidationError("x-tenant-id header required");
+
+    const { ingestLead } = await import("./bob/marketing");
+    const { adLeads: _ } = await import("@shared/schema");
+
+    const leadId = await ingestLead(tenantKey, {
+      firstName:       req.body.firstName || req.body.first_name,
+      lastName:        req.body.lastName  || req.body.last_name,
+      phone:           req.body.phone,
+      email:           req.body.email,
+      serviceInterest: req.body.serviceInterest || req.body.service_interest || req.body.service,
+      sourcePlatform:  req.body.sourcePlatform  || req.body.source || req.body.utm_source || "other",
+      campaignId:      req.body.campaignId   || req.body.campaign_id,
+      campaignName:    req.body.campaignName || req.body.campaign_name,
+      utmSource:       req.body.utm_source,
+      utmMedium:       req.body.utm_medium,
+      utmCampaign:     req.body.utm_campaign,
+      gclid:           req.body.gclid,
+      fbclid:          req.body.fbclid,
+      estimatedValue:  req.body.estimatedValue || req.body.estimated_value,
+      rawPayload:      req.body,
+    });
+
+    res.status(201).json({ success: true, leadId });
+  }));
+
+  // Owner/admin: list leads
+  app.get("/api/leads", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const { adLeads } = await import("@shared/schema");
+    const tenantId = getTenantId(req);
+    const status   = req.query.status as string | undefined;
+    const platform = req.query.platform as string | undefined;
+    const days     = Math.min(Number(req.query.days || 30), 90);
+
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const { gte: gteOp, and: andOp, eq: eqOp, sql: sqlOp, desc: descOp } = await import("drizzle-orm");
+    let where = andOp(eqOp(adLeads.tenantId, tenantId), gteOp(adLeads.createdAt, since));
+
+    const rows = await db
+      .select()
+      .from(adLeads)
+      .where(where)
+      .orderBy(descOp(adLeads.createdAt))
+      .limit(200);
+
+    // Client-side filter for status/platform (simple for now)
+    const filtered = rows.filter(r =>
+      (!status   || r.status          === status) &&
+      (!platform || r.sourcePlatform  === platform)
+    );
+    res.json(filtered);
+  }));
+
+  // Owner/admin: update lead status
+  app.patch("/api/leads/:id", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const { adLeads } = await import("@shared/schema");
+    const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+    const tenantId = getTenantId(req);
+    const id       = Number(req.params.id);
+    if (isNaN(id)) throw new ValidationError("Invalid lead ID");
+
+    const allowed = ["status", "outcomeNotes", "nextFollowUpAt", "bookedJobId"];
+    const updates: any = { updatedAt: new Date() };
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    const [updated] = await db
+      .update(adLeads)
+      .set(updates)
+      .where(andOp(eqOp(adLeads.id, id), eqOp(adLeads.tenantId, tenantId)))
+      .returning();
+    if (!updated) throw new NotFoundError("Lead");
+    res.json(updated);
+  }));
+
   // ── BOB KNOWLEDGE BASE ───────────────────────────────────────────────────
   app.get("/api/bob/knowledge", isAuthenticated, asyncHandler(async (req, res) => {
     const { bobKnowledge } = await import("@shared/schema");

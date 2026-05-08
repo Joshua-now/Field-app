@@ -537,10 +537,53 @@ const BOB_TOOLS = [
       },
     },
   },
+  // ── Marketing tools (owner/admin only — role enforced inside each function) ──
+  {
+    type: "function",
+    function: {
+      name: "get_lead_summary",
+      description: "Get a summary of ad leads for the last N days — total, booked, cold, by platform. Owner/admin only.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Number of days to look back (default 7)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_cold_leads",
+      description: "List cold or uncontacted leads that need follow-up. Owner/admin only.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max leads to return (default 10)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_lead_status",
+      description: "Update the status of a specific lead (e.g. mark as booked, cold, won). Owner/admin only.",
+      parameters: {
+        type: "object",
+        properties: {
+          lead_id: { type: "number", description: "The lead ID" },
+          status:  { type: "string", description: "new | contacted | follow_up | booked | cold | lost | won" },
+          notes:   { type: "string", description: "Optional notes about the outcome" },
+        },
+        required: ["lead_id", "status"],
+      },
+    },
+  },
 ];
 
 // ─── TOOL EXECUTOR ────────────────────────────────────────────────────────────
-async function executeTool(name: string, args: any, tenantId: string): Promise<any> {
+async function executeTool(name: string, args: any, tenantId: string, userRole = "staff"): Promise<any> {
   console.log(`[Bob] tool: ${name}`, JSON.stringify(args));
   switch (name) {
     // Field reads
@@ -574,6 +617,19 @@ async function executeTool(name: string, args: any, tenantId: string): Promise<a
       return triggerN8nWorkflow(args.workflow_name, args.action || "restart");
     case "search_ghl_contact":
       return searchGHLContacts(args.name);
+    // ── Marketing tools (owner/admin only) ──────────────────────────────────
+    case "get_lead_summary": {
+      const { getLeadSummary } = await import("./marketing");
+      return getLeadSummary(tenantId, userRole, args.days ?? 7);
+    }
+    case "get_cold_leads": {
+      const { getColdLeads } = await import("./marketing");
+      return getColdLeads(tenantId, userRole, args.limit ?? 10);
+    }
+    case "update_lead_status": {
+      const { updateLeadStatus } = await import("./marketing");
+      return updateLeadStatus(tenantId, userRole, Number(args.lead_id), args.status, args.notes);
+    }
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -723,7 +779,7 @@ export async function runBobAgent(
     for (const tc of msg.tool_calls) {
       let args: any = {};
       try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
-      const result = await executeTool(tc.function.name, args, tenantId);
+      const result = await executeTool(tc.function.name, args, tenantId, user?.role ?? "staff");
       messages.push({
         role: "tool",
         tool_call_id: tc.id,

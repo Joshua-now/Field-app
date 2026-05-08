@@ -376,6 +376,56 @@ export const bobMessagesRelations = relations(bobMessages, ({ one }) => ({
   }),
 }));
 
+// ─── AD LEADS (owner/admin only) ──────────────────────────────────────────────
+
+export const adLeads = pgTable("ad_leads", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+
+  // Lead identity
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  phone: text("phone"),
+  email: text("email"),
+  serviceInterest: text("service_interest"),     // "AC tune-up", "plumbing repair", etc.
+  estimatedValue: decimal("estimated_value", { precision: 10, scale: 2 }),
+
+  // Source tracking
+  sourcePlatform: text("source_platform"),       // google | meta | organic | referral | other
+  campaignId: text("campaign_id"),               // platform campaign ID
+  campaignName: text("campaign_name"),
+  adGroupName: text("ad_group_name"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  gclid: text("gclid"),                          // Google click ID
+  fbclid: text("fbclid"),                        // Meta click ID
+
+  // Status & lifecycle
+  status: text("status").default("new"),         // new | contacted | follow_up | booked | cold | lost | won
+  followUpCount: integer("follow_up_count").default(0),
+  lastFollowUpAt: timestamp("last_follow_up_at"),
+  nextFollowUpAt: timestamp("next_follow_up_at"),
+  bookedJobId: integer("booked_job_id"),         // links to jobs table when booked
+
+  // Outcome
+  outcome: text("outcome"),                      // booked | no_answer | not_interested | wrong_number
+  outcomeNotes: text("outcome_notes"),
+
+  // Raw payload from webhook
+  rawPayload: jsonb("raw_payload"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_ad_leads_tenant").on(table.tenantId),
+  index("idx_ad_leads_status").on(table.status),
+  index("idx_ad_leads_platform").on(table.sourcePlatform),
+]);
+
+export type AdLead = typeof adLeads.$inferSelect;
+export type InsertAdLead = typeof adLeads.$inferInsert;
+
 // ─── BOB KNOWLEDGE BASE ───────────────────────────────────────────────────────
 
 export const bobKnowledge = pgTable("bob_knowledge", {
