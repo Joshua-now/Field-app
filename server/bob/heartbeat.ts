@@ -60,9 +60,11 @@ async function checkAllServices() {
   return results;
 }
 
-async function startBriefingCall(tenant: any, user: any, briefingType: "morning" | "evening") {
+async function startBriefingCall(tenant: any, _user: any, briefingType: "morning" | "evening") {
   const selfUrl = process.env.SELF_URL || "https://field-app-production-d5c8.up.railway.app";
-  const phone   = process.env.BRIEFING_PHONE || user?.phone;
+  // BRIEFING_PHONE overrides everything; fall back to the tenant's registered phone
+  // Note: users table has no phone field — contact number lives on the tenant record
+  const phone   = process.env.BRIEFING_PHONE || tenant?.phone;
 
   if (!phone) {
     console.log(`[Heartbeat] No phone for tenant ${tenant.id}, skipping briefing call`);
@@ -127,7 +129,7 @@ export function startHeartbeat() {
           const user = await db.query.users.findFirst({
             where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
           });
-          const phone = user?.phone || tenant.phone;
+          const phone = tenant.phone;
           if (!phone) continue;
           const msg = `Bob health sweep: ${down.map(d => `${d.name} is DOWN`).join(", ")}. Check Railway.`;
           await sendSMS(phone, msg.substring(0, 320));
