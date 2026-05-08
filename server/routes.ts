@@ -639,6 +639,73 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   }));
 
+  // ── CRM INTEGRATION ──────────────────────────────────────────────────────
+
+  // Save CRM config (owner only)
+  app.post("/api/tenant/crm", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const { tenants } = await import("@shared/models/auth");
+    const tenantId = getTenantId(req);
+    const { crmType, crmApiKey, ghlLocationId } = req.body;
+
+    if (!crmType || !["ghl", "jobber", "servicetitan", "none"].includes(crmType)) {
+      throw new ValidationError("crmType must be ghl, jobber, servicetitan, or none");
+    }
+    if (crmType !== "none" && !crmApiKey) {
+      throw new ValidationError("crmApiKey is required");
+    }
+
+    const updates: Record<string, any> = {
+      crmType: crmType === "none" ? null : crmType,
+      crmApiKey: crmType === "none" ? null : crmApiKey,
+      updatedAt: new Date(),
+    };
+    if (ghlLocationId !== undefined) updates.ghlLocationId = ghlLocationId;
+
+    await db.update(tenants).set(updates).where(eq(tenants.id, tenantId));
+    res.json({ ok: true, crmType: updates.crmType });
+  }));
+
+  // Test CRM connection
+  app.get("/api/tenant/crm/test", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const { tenants } = await import("@shared/models/auth");
+    const { getCrmAdapter } = await import("./crm/index");
+    const tenantId = getTenantId(req);
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+    if (!tenant) throw new NotFoundError("Tenant");
+
+    const adapter = getCrmAdapter(tenant as any);
+    if (!adapter) {
+      return res.json({ ok: false, error: "No CRM configured. Save your CRM settings first." });
+    }
+
+    const result = await adapter.testConnection();
+    res.json(result);
+  }));
+
+  // Mark onboarding complete
+  app.post("/api/tenant/onboarding/complete", isAuthenticated, asyncHandler(async (req, res) => {
+    const { tenants } = await import("@shared/models/auth");
+    const tenantId = getTenantId(req);
+    await db
+      .update(tenants)
+      .set({ onboardingCompleted: true, bobEnabled: true, updatedAt: new Date() } as any)
+      .where(eq(tenants.id, tenantId));
+    res.json({ ok: true });
+  }));
+
+  // Onboarding status check
+  app.get("/api/tenant/onboarding/status", isAuthenticated, asyncHandler(async (req, res) => {
+    const { tenants } = await import("@shared/models/auth");
+    const tenantId = getTenantId(req);
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+    if (!tenant) throw new NotFoundError("Tenant");
+    res.json({
+      onboardingCompleted: (tenant as any).onboardingCompleted ?? false,
+      crmType: (tenant as any).crmType ?? null,
+      companyName: tenant.companyName,
+    });
+  }));
+
   // ── ERROR HANDLER (must be last) ──────────────────────────────────────────
   app.use(errorHandler);
 

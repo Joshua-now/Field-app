@@ -22,6 +22,11 @@ export const tenants = pgTable("tenants", {
   ghlLocationId: text("ghl_location_id"),
   n8nBaseUrl: text("n8n_base_url"),
   settings: jsonb("settings"),                        // { timezone, serviceTypes, branding }
+  // ── CRM Integration ──────────────────────────────────────────────────────
+  crmType: text("crm_type"),                          // null | 'ghl' | 'jobber' | 'servicetitan'
+  crmApiKey: text("crm_api_key"),                     // API key / PIT token for their CRM
+  // ── Onboarding ───────────────────────────────────────────────────────────
+  onboardingCompleted: boolean("onboarding_completed").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

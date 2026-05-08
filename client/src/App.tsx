@@ -5,10 +5,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/hooks/use-auth";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
+import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import Schedule from "@/pages/Schedule";
 import Jobs from "@/pages/Jobs";
@@ -24,12 +25,29 @@ import NotFound from "@/pages/not-found";
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
   const [, navigate] = useLocation();
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
+  // After auth resolves, check if this tenant has completed onboarding
   useEffect(() => {
+    if (!isLoading && user) {
+      const token = localStorage.getItem("authToken");
+      fetch("/api/tenant/onboarding/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then((data: any) => {
+          if (!data.onboardingCompleted) {
+            navigate("/onboarding");
+          } else {
+            setOnboardingChecked(true);
+          }
+        })
+        .catch(() => setOnboardingChecked(true)); // fail open
+    }
     if (!isLoading && !user) navigate("/login");
   }, [user, isLoading]);
 
-  if (isLoading) {
+  if (isLoading || (user && !onboardingChecked)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -45,6 +63,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/onboarding" component={Onboarding} />
       <Route path="/">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/schedule">{() => <ProtectedRoute component={Schedule} />}</Route>
       <Route path="/jobs">{() => <ProtectedRoute component={Jobs} />}</Route>

@@ -532,12 +532,14 @@ const BOB_TOOLS = [
   {
     type: "function",
     function: {
-      name: "search_ghl_contact",
-      description: "Look up a contact in GoHighLevel CRM by name.",
+      name: "search_crm_contact",
+      description: "Search the contractor's connected CRM (GoHighLevel, Jobber, or ServiceTitan) for a contact by name, phone, or email. Returns pipeline stage, notes, and opportunities. Falls back gracefully if no CRM is connected.",
       parameters: {
         type: "object",
-        properties: { name: { type: "string" } },
-        required: ["name"],
+        properties: {
+          query: { type: "string", description: "Name, phone number, or email to search for" },
+        },
+        required: ["query"],
       },
     },
   },
@@ -620,8 +622,17 @@ async function executeTool(name: string, args: any, tenantId: string, userRole =
         return await getN8nWorkflows();
       case "restart_n8n_workflow":
         return await triggerN8nWorkflow(args.workflow_name, args.action || "restart");
-      case "search_ghl_contact":
-        return await searchGHLContacts(args.name);
+      case "search_crm_contact": {
+        const { getCrmAdapter } = await import("../crm/index");
+        const { tenants } = await import("@shared/models/auth");
+        const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+        if (!tenant) return { error: "Tenant not found." };
+        const adapter = getCrmAdapter(tenant as any);
+        if (!adapter) {
+          return { error: "No CRM connected. Ask the owner to connect GoHighLevel, Jobber, or ServiceTitan in Settings → Integrations." };
+        }
+        return await adapter.searchContacts(args.query);
+      }
       // ── Marketing tools (owner/admin only) ──────────────────────────────────
       case "get_lead_summary": {
         const { getLeadSummary } = await import("./marketing");
@@ -677,7 +688,7 @@ WHAT YOU CAN DO:
 - Check system health (Railway, n8n, Switchboard)
 - Manage n8n workflows
 - Pull Instantly.ai campaign data
-- Search GoHighLevel CRM${marketingSection}
+- Search the contractor's connected CRM (GoHighLevel, Jobber, or ServiceTitan) using search_crm_contact${marketingSection}
 
 FIELD QUERY EXAMPLES — call tools immediately, no narration:
 - "What's my next job?" → get_today_schedule, pick the next scheduled one
