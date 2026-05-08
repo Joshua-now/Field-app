@@ -1,3 +1,4 @@
+import { authHeaders } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { InsertJob } from "@shared/schema";
@@ -15,7 +16,7 @@ export function useJobs(filters?: { status?: string; technicianId?: number; date
       if (filters?.technicianId) url.searchParams.append("technicianId", filters.technicianId.toString());
       if (filters?.date) url.searchParams.append("date", filters.date);
 
-      const res = await fetch(url.toString(), { credentials: "include" });
+      const res = await fetch(url.toString(), { headers: { ...authHeaders() } });
       if (!res.ok) throw new Error("Failed to fetch jobs");
       return api.jobs.list.responses[200].parse(await res.json());
     },
@@ -27,7 +28,7 @@ export function useJob(id: number) {
     queryKey: [api.jobs.get.path, id],
     queryFn: async () => {
       const url = buildUrl(api.jobs.get.path, { id });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, { headers: { ...authHeaders() } });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch job");
       return api.jobs.get.responses[200].parse(await res.json());
@@ -44,9 +45,8 @@ export function useCreateJob() {
     mutationFn: async (data: InsertJob) => {
       const res = await fetch(api.jobs.create.path, {
         method: api.jobs.create.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to create job");
       return api.jobs.create.responses[201].parse(await res.json());
@@ -70,9 +70,8 @@ export function useUpdateJob() {
       const url = buildUrl(api.jobs.update.path, { id });
       const res = await fetch(url, {
         method: api.jobs.update.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to update job");
       return api.jobs.update.responses[200].parse(await res.json());
@@ -97,9 +96,8 @@ export function useUpdateJobStatus() {
       const url = buildUrl(api.jobs.status.path, { id });
       const res = await fetch(url, {
         method: api.jobs.status.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ status }),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to update status");
       return api.jobs.status.responses[200].parse(await res.json());

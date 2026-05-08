@@ -1,12 +1,20 @@
 /**
  * Bob — AI Field Operations Assistant
- * Phase 3: Real agent with OpenRouter + tool system
+ * Audit Pass: Field-ready agent with real data access + safety guardrails
+ *
+ * Tool categories:
+ *   FIELD READS  — safe, no confirmation: schedule, job detail, customer lookup
+ *   FIELD WRITES — require confirmation before calling: SMS, status update, job note
+ *   INFRA        — system status, n8n, Instantly, GHL
  */
 
 import axios from "axios";
 import { db } from "../db";
-import { bobMessages, bobConversations, tenants, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import {
+  bobMessages, bobConversations, tenants, users,
+  jobs, customers, technicians, jobNotes,
+} from "@shared/schema";
+import { eq, and, ilike, or } from "drizzle-orm";
 
 // ─── MODEL ROUTING ────────────────────────────────────────────────────────────
 const MODELS = {
@@ -15,8 +23,13 @@ const MODELS = {
   opus:   "anthropic/claude-opus-4-5-20251101",
 } as const;
 
-const SIMPLE_KW = ["status","hi","hello","hey","yes","no","thanks","ok","what","who","when","where","how many","check"];
-const COMPLEX_KW = ["analyze","compare","strategy","plan","why is","root cause","recommend","should i"];
+const SIMPLE_KW = [
+  "status","hi","hello","hey","yes","no","thanks","ok",
+  "what","who","when","where","how many","check",
+  "job","schedule","address","customer","next","today",
+  "time","phone","note","text","send","update","complete",
+];
+const COMPLEX_KW = ["analyze","compare","strategy","plan","why is","root cause","recommend","invoice"];
 
 function selectModel(input: string): string {
   const s = input.toLowerCase().trim();
@@ -25,7 +38,234 @@ function selectModel(input: string): string {
   return MODELS.sonnet;
 }
 
-// ─── EXTERNAL API HELPERS ─────────────────────────────────────────────────────
+// ─── FIELD DATA TOOLS ─────────────────────────────────────────────────────────
+
+async function getTodaySchedule(tenantId: string, technicianName?: string): Promise<any> {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const result = await db.query.jobs.findMany({
+      where: and(eq(jobs.tenantId, tenantId), eq(jobs.scheduledDate, today)),
+      with: { customer: true, technician: true },
+      orderBy: (j: any, { asc }: any) => [asc(j.scheduledTimeStart)],
+    }) as any[];
+
+    let filtered = result;
+    if (technicianName) {
+      const name = technicianName.toLowerCase();
+      filtered = filtered.filter((j: any) =>
+        j.technician && (
+          (j.technician.firstName || "").toLowerCase().includes(name) ||
+          (j.technician.lastName  || "").toLowerCase().includes(name)
+        )
+      );
+    }
+
+    if (filtered.length === 0) {
+      return { jobs: [], message: technicianName ? `No jobs today for ${technicianName}.` : "No jobs scheduled for today." };
+    }
+
+    return {
+      date: today,
+      totalJobs: filtered.length,
+      active: filtered.filter((j: any) => ["in_progress","en_route","arrived"].includes(j.status || "")).length,
+      jobs: filtered.map((j: any) => ({
+        jobNumber: j.jobNumber,
+        id: j.id,
+        serviceType: j.serviceType,
+        status: j.status || "scheduled",
+        time: (j.scheduledTimeStart || "").slice(0, 5),
+        customer: j.customer ? `${j.customer.firstName} ${j.customer.lastName}` : "Unknown",
+        customerId: j.customer?.id,
+        customerPhone: j.customer?.phone,
+        address: j.customer
+          ? `${j.customer.addressStreet || ""}, ${j.customer.addressCity || ""}`
+          : "No address on file",
+        technician: j.technician
+          ? `${j.technician.firstName} ${j.technician.lastName}`
+          : "Unassigned",
+        priority: j.priority || "normal",
+        specialInstructions: j.specialInstructions || null,
+      })),
+    };
+  } catch (e: any) {
+    return { error: `Failed to load schedule: ${e.message}` };
+  }
+}
+
+async function getJobDetail(tenantId: string, jobNumber: string): Promise<any> {
+  try {
+    const result = await db.query.jobs.findFirst({
+      where: and(eq(jobs.tenantId, tenantId), eq(jobs.jobNumber, jobNumber.toUpperCase())),
+      with: { customer: true, technician: true },
+    }) as any;
+
+    if (!result) return { error: `Job ${jobNumber} not found.` };
+
+    return {
+      jobNumber: result.jobNumber,
+      id: result.id,
+      serviceType: result.serviceType,
+      description: result.description || "No description.",
+      status: result.status || "scheduled",
+      priority: result.priority || "normal",
+      scheduledDate: result.scheduledDate,
+      scheduledTime: (result.scheduledTimeStart || "").slice(0, 5),
+      estimatedDurationMinutes: result.estimatedDurationMinutes,
+      specialInstructions: result.specialInstructions || null,
+      requiresFollowup: result.requiresFollowup,
+      followupDate: result.followupDate || null,
+      totalCost: result.totalCost || "0.00",
+      paymentStatus: result.paymentStatus || "pending",
+      customer: result.customer ? {
+        id: result.customer.id,
+        name: `${result.customer.firstName} ${result.customer.lastName}`,
+        phone: result.customer.phone,
+        email: result.customer.email,
+        address: [
+          result.customer.addressStreet,
+          result.customer.addressCity,
+          result.customer.addressState,
+          result.customer.addressZip,
+        ].filter(Boolean).join(", "),
+        gateCode: result.customer.gateCode || null,
+        accessNotes: result.customer.accessNotes || null,
+        notes: result.customer.notes || null,
+        tags: result.customer.tags || [],
+      } : null,
+      technician: result.technician ? {
+        id: result.technician.id,
+        name: `${result.technician.firstName} ${result.technician.lastName}`,
+        phone: result.technician.phone,
+      } : null,
+    };
+  } catch (e: any) {
+    return { error: `Failed to load job: ${e.message}` };
+  }
+}
+
+async function findCustomer(tenantId: string, name: string): Promise<any> {
+  try {
+    const term = `%${name.trim()}%`;
+    const results = await db.select().from(customers).where(
+      and(
+        eq(customers.tenantId, tenantId),
+        or(
+          ilike(customers.firstName, term),
+          ilike(customers.lastName, term),
+          ilike(customers.phone, term),
+          ilike(customers.email, term),
+        )
+      )
+    ).limit(5);
+
+    if (results.length === 0) {
+      return { customers: [], message: `No customer found matching "${name}".` };
+    }
+
+    return {
+      customers: results.map(c => ({
+        id: c.id,
+        name: `${c.firstName} ${c.lastName}`,
+        phone: c.phone,
+        email: c.email || null,
+        address: [c.addressStreet, c.addressCity, c.addressState, c.addressZip].filter(Boolean).join(", "),
+        gateCode: c.gateCode || null,
+        accessNotes: c.accessNotes || null,
+        notes: c.notes || null,
+        totalJobsCompleted: c.totalJobsCompleted || 0,
+        lifetimeValue: c.lifetimeValue || "0",
+        tags: c.tags || [],
+      })),
+    };
+  } catch (e: any) {
+    return { error: `Customer search failed: ${e.message}` };
+  }
+}
+
+async function updateJobStatusFn(tenantId: string, jobNumber: string, newStatus: string): Promise<any> {
+  const validStatuses = ["scheduled","assigned","en_route","arrived","in_progress","completed","cancelled"];
+  if (!validStatuses.includes(newStatus)) {
+    return { error: `Invalid status "${newStatus}". Valid: ${validStatuses.join(", ")}` };
+  }
+
+  try {
+    const job = await db.query.jobs.findFirst({
+      where: and(eq(jobs.tenantId, tenantId), eq(jobs.jobNumber, jobNumber.toUpperCase())),
+    });
+    if (!job) return { error: `Job ${jobNumber} not found.` };
+
+    const updates: any = {
+      status: newStatus,
+      statusUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (newStatus === "en_route")    updates.enRouteAt   = new Date();
+    if (newStatus === "arrived")     updates.arrivedAt   = new Date();
+    if (newStatus === "in_progress") updates.startedAt   = new Date();
+    if (newStatus === "completed")   updates.completedAt = new Date();
+
+    await db.update(jobs).set(updates)
+      .where(and(eq(jobs.id, job.id), eq(jobs.tenantId, tenantId)));
+
+    return { ok: true, message: `✅ ${jobNumber} marked as "${newStatus}".`, jobNumber, newStatus };
+  } catch (e: any) {
+    return { error: `Status update failed: ${e.message}` };
+  }
+}
+
+async function sendSMSToCustomer(
+  tenantId: string,
+  customerPhone: string,
+  customerName: string,
+  message: string
+): Promise<any> {
+  const from = process.env.TELNYX_PHONE_NUMBER;
+  if (!from) return { error: "TELNYX_PHONE_NUMBER not configured." };
+  if (!process.env.TELNYX_API_KEY) return { error: "TELNYX_API_KEY not configured." };
+
+  // Validate + normalize phone
+  const cleaned = customerPhone.replace(/\D/g, "");
+  if (cleaned.length < 10) return { error: `Phone number too short: "${customerPhone}"` };
+  const to = cleaned.length === 11 && cleaned.startsWith("1")
+    ? `+${cleaned}`
+    : `+1${cleaned.slice(-10)}`;
+
+  try {
+    await axios.post(
+      "https://api.telnyx.com/v2/messages",
+      { from, to, text: message.slice(0, 1600) },
+      { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` }, timeout: 12000 }
+    );
+    return { ok: true, message: `✅ SMS sent to ${customerName} at ${to}.`, to, preview: message.slice(0, 100) };
+  } catch (e: any) {
+    const detail = e?.response?.data?.errors?.[0]?.detail || e.message;
+    return { error: `SMS failed: ${detail}` };
+  }
+}
+
+async function addJobNoteFn(tenantId: string, jobId: number, noteText: string): Promise<any> {
+  try {
+    const job = await db.query.jobs.findFirst({
+      where: and(eq(jobs.id, jobId), eq(jobs.tenantId, tenantId)),
+    });
+    if (!job) return { error: `Job ID ${jobId} not found.` };
+
+    await db.insert(jobNotes).values({
+      tenantId,
+      jobId,
+      noteType: "general",
+      noteText: noteText.slice(0, 2000),
+      isInternal: false,
+    });
+
+    return { ok: true, message: `✅ Note added to ${job.jobNumber}.`, jobNumber: job.jobNumber };
+  } catch (e: any) {
+    return { error: `Add note failed: ${e.message}` };
+  }
+}
+
+// ─── EXTERNAL / INFRA TOOLS ───────────────────────────────────────────────────
+
 async function getInstantlyCampaigns() {
   try {
     const r = await axios.get("https://api.instantly.ai/api/v2/campaigns", {
@@ -59,13 +299,14 @@ async function getSwitchboardStatus() {
 }
 
 async function getN8nWorkflows() {
+  const base = process.env.N8N_BASE_URL;
+  const key  = process.env.N8N_API_KEY;
+  if (!base || !key) return { ok: false, error: "N8N_BASE_URL or N8N_API_KEY not set" };
   try {
-    const base = process.env.N8N_BASE_URL;
-    const key  = process.env.N8N_API_KEY;
-    if (!base || !key) return { ok: false, error: "N8N_BASE_URL or N8N_API_KEY not set" };
     const [wfR, exR] = await Promise.all([
       axios.get(`${base}/api/v1/workflows`, { headers: { "X-N8N-API-KEY": key }, params: { limit: 20 }, timeout: 8000 }),
-      axios.get(`${base}/api/v1/executions`, { headers: { "X-N8N-API-KEY": key }, params: { limit: 10 }, timeout: 8000 }).catch(() => ({ data: { data: [] } })),
+      axios.get(`${base}/api/v1/executions`, { headers: { "X-N8N-API-KEY": key }, params: { limit: 10 }, timeout: 8000 })
+        .catch(() => ({ data: { data: [] } })),
     ]);
     return {
       ok: true,
@@ -83,7 +324,7 @@ async function getN8nWorkflows() {
 
 async function triggerN8nWorkflow(workflowName: string, action = "restart") {
   const base = process.env.N8N_BASE_URL;
-  const key = process.env.N8N_API_KEY;
+  const key  = process.env.N8N_API_KEY;
   if (!base || !key) return { ok: false, error: "N8N not configured" };
   const headers = { "X-N8N-API-KEY": key };
   const listR = await axios.get(`${base}/api/v1/workflows`, { headers, params: { limit: 50 }, timeout: 8000 });
@@ -135,6 +376,7 @@ async function searchGHLContacts(name: string) {
         Version: "2021-07-28",
       },
       params: { locationId: process.env.GHL_LOCATION_ID, query: name, limit: 5 },
+      timeout: 8000,
     });
     return r.data?.contacts || [];
   } catch (e: any) {
@@ -144,11 +386,111 @@ async function searchGHLContacts(name: string) {
 
 // ─── TOOL DEFINITIONS ─────────────────────────────────────────────────────────
 const BOB_TOOLS = [
+  // ── FIELD READS ──
+  {
+    type: "function",
+    function: {
+      name: "get_today_schedule",
+      description: "Get today's full job schedule: time, customer name, address, status, technician. Use for: 'what's my schedule', 'what's next', 'how many jobs today', 'what jobs are active'.",
+      parameters: {
+        type: "object",
+        properties: {
+          technician_name: {
+            type: "string",
+            description: "Optional: filter schedule to a specific technician by name.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_job_detail",
+      description: "Get full details for a specific job: customer address, phone, access notes, gate code, description, special instructions, cost. Use when asked for address, directions, customer contact, or job specifics.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_number: {
+            type: "string",
+            description: "Job number, e.g. JOB-2405-001. If user says 'the job' or 'my job', use get_today_schedule first to find the right one.",
+          },
+        },
+        required: ["job_number"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "find_customer",
+      description: "Search for a customer in the field app by name or phone. Returns address, contact info, access notes, history.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Customer name or partial name to search." },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  // ── FIELD WRITES (confirmation required before calling) ──
+  {
+    type: "function",
+    function: {
+      name: "update_job_status",
+      description: "Update a job's status. CONFIRMATION REQUIRED: before calling this, state the job number, current status, and new status in your response, then end with 'Shall I update it?'. Only call this tool after the user says yes/confirm/proceed/do it.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_number: { type: "string", description: "Job number like JOB-2405-001" },
+          new_status: {
+            type: "string",
+            enum: ["scheduled","assigned","en_route","arrived","in_progress","completed","cancelled"],
+          },
+        },
+        required: ["job_number", "new_status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_sms_to_customer",
+      description: "Send an SMS to a customer. CONFIRMATION REQUIRED: before calling this, show the customer's name, phone number, and the exact message text, then ask 'Should I send this?'. Only call after explicit user confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_phone: { type: "string", description: "Customer phone number." },
+          customer_name:  { type: "string", description: "Customer's full name (for confirmation display)." },
+          message:        { type: "string", description: "The exact SMS text to send. Keep under 160 chars for a single message." },
+        },
+        required: ["customer_phone", "customer_name", "message"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_job_note",
+      description: "Add a note to a job. CONFIRMATION REQUIRED: show the note text and job number, ask 'Add this note?'. Only call after confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_id:    { type: "number", description: "The numeric job ID (use get_job_detail or get_today_schedule to find it)." },
+          note_text: { type: "string", description: "The note to record." },
+        },
+        required: ["job_id", "note_text"],
+      },
+    },
+  },
+  // ── INFRA TOOLS ──
   {
     type: "function",
     function: {
       name: "get_system_status",
-      description: "Check health of all infrastructure: n8n, Switchboard, Railway services.",
+      description: "Check health of all infrastructure: Railway services, n8n, Switchboard.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -172,12 +514,12 @@ const BOB_TOOLS = [
     type: "function",
     function: {
       name: "restart_n8n_workflow",
-      description: "Restart (or activate/deactivate) an n8n workflow by name.",
+      description: "Restart, activate, or deactivate an n8n workflow by name.",
       parameters: {
         type: "object",
         properties: {
           workflow_name: { type: "string" },
-          action: { type: "string", enum: ["restart", "activate", "deactivate"] },
+          action: { type: "string", enum: ["restart","activate","deactivate"] },
         },
         required: ["workflow_name"],
       },
@@ -198,9 +540,24 @@ const BOB_TOOLS = [
 ];
 
 // ─── TOOL EXECUTOR ────────────────────────────────────────────────────────────
-async function executeTool(name: string, args: any): Promise<any> {
+async function executeTool(name: string, args: any, tenantId: string): Promise<any> {
   console.log(`[Bob] tool: ${name}`, JSON.stringify(args));
   switch (name) {
+    // Field reads
+    case "get_today_schedule":
+      return getTodaySchedule(tenantId, args.technician_name);
+    case "get_job_detail":
+      return getJobDetail(tenantId, args.job_number);
+    case "find_customer":
+      return findCustomer(tenantId, args.name);
+    // Field writes
+    case "update_job_status":
+      return updateJobStatusFn(tenantId, args.job_number, args.new_status);
+    case "send_sms_to_customer":
+      return sendSMSToCustomer(tenantId, args.customer_phone, args.customer_name, args.message);
+    case "add_job_note":
+      return addJobNoteFn(tenantId, Number(args.job_id), args.note_text);
+    // Infra
     case "get_system_status": {
       const [railway, switchboard, n8n] = await Promise.all([
         checkRailwayServices(),
@@ -224,28 +581,47 @@ async function executeTool(name: string, args: any): Promise<any> {
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 function buildSystemPrompt(tenant: any, user: any): string {
-  return `You are Bob, the AI field operations assistant for ${tenant?.companyName || "this contractor business"}.
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const companyName = tenant?.companyName || "this contractor business";
+  const userName = user?.firstName || "there";
 
-You work for ${user?.firstName || "Joshua"} ${user?.lastName || ""} and know the business inside out.
+  return `You are Bob, the AI field operations assistant for ${companyName}. Today is ${today}.
 
-FLUID PRODUCTIONS — WHAT WE SELL:
-- Tier 1: After Hours Receptionist — $397/mo (AI answers calls after hours)
-- Tier 2: Speed to Lead — $997/mo (AI calls back ad leads within 60 seconds)
-- Tier 3: Complete Package — $1,497/mo (full AI employee, handles everything)
+You work alongside ${userName} and have direct access to the job schedule, customer records, and all connected systems.
 
-YOUR SYSTEMS:
-- Switchboard: AI call platform (Anna = Speed to Lead, Maya = After Hours)
-- n8n: Automation workflows — you can restart broken ones
-- Instantly: Cold email campaigns
-- GHL (GoHighLevel): CRM, pipeline, contacts
-- Railway: Infrastructure hosting
+WHAT YOU CAN DO:
+- Look up today's schedule, job details, customer info, addresses, gate codes, special instructions
+- Update job statuses (en route, arrived, in progress, completed)
+- Send SMS messages to customers
+- Add notes to jobs
+- Check system health (Railway, n8n, Switchboard)
+- Manage n8n workflows
+- Pull Instantly.ai campaign data
+- Search GoHighLevel CRM
+
+FIELD QUERY EXAMPLES — call tools immediately, no narration:
+- "What's my next job?" → get_today_schedule, pick the next scheduled one
+- "Give me Linda's address" → find_customer("Linda"), return the address
+- "What's the gate code for JOB-2405-002?" → get_job_detail("JOB-2405-002"), return gateCode
+- "Mark JOB-2405-001 complete" → confirm first, then update_job_status
+- "Text the customer I'm running 20 min late" → ask which job, draft the message, confirm, then send
+
+CONFIRMATION RULES (CRITICAL):
+Before calling update_job_status, send_sms_to_customer, or add_job_note:
+1. State exactly what you're about to do: job number, customer name, new status or message text
+2. End your response with "Shall I proceed?" or "Should I send this?"
+3. Only call the write tool after the user says yes / confirm / do it / go ahead
+
+WRONG-CUSTOMER PREVENTION:
+- Always name the customer and job number when discussing a job
+- If the user says "the customer" without specifying, ask "Which job — I have [X] on the schedule today"
 
 YOUR STYLE:
-- Short and direct. 1-3 sentences max.
-- Do the work, report the result. Don't narrate what you're about to do.
+- Short and direct. 1-3 sentences unless detail is needed.
+- Do the work first, then report the result. Never narrate what you're about to do.
 - Talk like you've worked together for years.
-- When asked about system status — ALWAYS call get_system_status first.
-- Never say "I don't have access" — use your tools.`;
+- Never say "I don't have access to that" — use your tools.
+- If a tool returns an error, report it plainly and suggest the fix.`;
 }
 
 // ─── MAIN AGENT LOOP ──────────────────────────────────────────────────────────
@@ -257,21 +633,19 @@ export async function runBobAgent(
   console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}`);
 
   const rawKey = process.env.OPENROUTER_API_KEY || "";
-  // Strip whitespace, accidental "Bearer " prefix, and surrounding quotes
   const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "").replace(/^["'`]|["'`]$/g, "").trim();
   const keyDebug = `len=${apiKey.length} prefix="${apiKey.slice(0, 14)}" sk-or=${apiKey.startsWith("sk-or-")}`;
   console.log(`[Bob] Key info: ${keyDebug}`);
   if (!apiKey) {
-    console.error("[Bob] OPENROUTER_API_KEY not set");
-    return "OPENROUTER_API_KEY is not configured in Railway env vars.";
+    return "OPENROUTER_API_KEY is not configured — check Railway env vars.";
   }
 
   // Load tenant + user context
   let tenant: any = null;
   let user: any = null;
   try {
-    tenant = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1).then(r => r[0]);
-    user   = await db.select().from(users).where(eq(users.tenantId, tenantId)).limit(1).then(r => r[0]);
+    [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    [user]   = await db.select().from(users).where(eq(users.tenantId, tenantId)).limit(1);
   } catch (e: any) {
     console.error("[Bob] DB lookup error:", e.message);
   }
@@ -288,7 +662,10 @@ export async function runBobAgent(
   }
 
   const messages: any[] = [
-    ...historyRows.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+    ...historyRows.map((m: any) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    })),
     { role: "user", content: userMessage },
   ];
 
@@ -335,10 +712,11 @@ export async function runBobAgent(
       return msg.content || "Done.";
     }
 
+    // Execute all tool calls in this iteration
     for (const tc of msg.tool_calls) {
       let args: any = {};
       try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
-      const result = await executeTool(tc.function.name, args);
+      const result = await executeTool(tc.function.name, args, tenantId);
       messages.push({
         role: "tool",
         tool_call_id: tc.id,

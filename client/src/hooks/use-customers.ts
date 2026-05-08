@@ -1,3 +1,4 @@
+import { authHeaders } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { InsertCustomer } from "@shared/schema";
@@ -10,7 +11,7 @@ export function useCustomers(search?: string) {
       const url = new URL(api.customers.list.path, window.location.origin);
       if (search) url.searchParams.append("search", search);
       
-      const res = await fetch(url.toString(), { credentials: "include" });
+      const res = await fetch(url.toString(), { headers: { ...authHeaders() } });
       if (!res.ok) throw new Error("Failed to fetch customers");
       return api.customers.list.responses[200].parse(await res.json());
     },
@@ -25,9 +26,8 @@ export function useCreateCustomer() {
     mutationFn: async (data: InsertCustomer) => {
       const res = await fetch(api.customers.create.path, {
         method: api.customers.create.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to create customer");
       return api.customers.create.responses[201].parse(await res.json());

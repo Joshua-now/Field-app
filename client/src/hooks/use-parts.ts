@@ -1,3 +1,4 @@
+import { authHeaders } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@shared/routes";
 import { InsertPart } from "@shared/schema";
@@ -7,7 +8,7 @@ export function useParts() {
   return useQuery({
     queryKey: [api.parts.list.path],
     queryFn: async () => {
-      const res = await fetch(api.parts.list.path, { credentials: "include" });
+      const res = await fetch(api.parts.list.path, { headers: { ...authHeaders() } });
       if (!res.ok) throw new Error("Failed to fetch parts");
       return api.parts.list.responses[200].parse(await res.json());
     },
@@ -22,9 +23,8 @@ export function useCreatePart() {
     mutationFn: async (data: InsertPart) => {
       const res = await fetch(api.parts.create.path, {
         method: api.parts.create.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to create part");
       return api.parts.create.responses[201].parse(await res.json());

@@ -150,7 +150,7 @@ export default function Bob() {
             <h1 className="font-semibold">Bob</h1>
             <p className="text-xs text-muted-foreground">Your AI field operations assistant</p>
           </div>
-          <Badge variant="secondary" className="ml-auto">Phase 2 — Agent coming in Phase 3</Badge>
+          <Badge variant="secondary" className="ml-auto text-emerald-700 bg-emerald-50 border-emerald-200">Online</Badge>
         </div>
 
         {/* Messages */}

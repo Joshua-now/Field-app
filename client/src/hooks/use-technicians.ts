@@ -1,3 +1,4 @@
+import { authHeaders } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { InsertTechnician } from "@shared/schema";
@@ -7,7 +8,7 @@ export function useTechnicians() {
   return useQuery({
     queryKey: [api.technicians.list.path],
     queryFn: async () => {
-      const res = await fetch(api.technicians.list.path, { credentials: "include" });
+      const res = await fetch(api.technicians.list.path, { headers: { ...authHeaders() } });
       if (!res.ok) throw new Error("Failed to fetch technicians");
       return api.technicians.list.responses[200].parse(await res.json());
     },
@@ -19,7 +20,7 @@ export function useTechnician(id: number) {
     queryKey: [api.technicians.get.path, id],
     queryFn: async () => {
       const url = buildUrl(api.technicians.get.path, { id });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, { headers: { ...authHeaders() } });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch technician");
       return api.technicians.get.responses[200].parse(await res.json());
@@ -36,9 +37,8 @@ export function useCreateTechnician() {
     mutationFn: async (data: InsertTechnician) => {
       const res = await fetch(api.technicians.create.path, {
         method: api.technicians.create.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to create technician");
       return api.technicians.create.responses[201].parse(await res.json());

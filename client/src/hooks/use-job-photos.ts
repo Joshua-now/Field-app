@@ -1,3 +1,4 @@
+import { authHeaders } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
@@ -7,7 +8,7 @@ export function useJobPhotos(jobId: number) {
     queryKey: [api.jobPhotos.list.path, jobId],
     queryFn: async () => {
       const url = buildUrl(api.jobPhotos.list.path, { jobId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, { headers: { ...authHeaders() } });
       if (!res.ok) throw new Error("Failed to fetch photos");
       return api.jobPhotos.list.responses[200].parse(await res.json());
     },
@@ -24,9 +25,8 @@ export function useCreateJobPhoto(jobId: number) {
       const url = buildUrl(api.jobPhotos.create.path, { jobId });
       const res = await fetch(url, {
         method: api.jobPhotos.create.method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
-        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to save photo");
       return api.jobPhotos.create.responses[201].parse(await res.json());
