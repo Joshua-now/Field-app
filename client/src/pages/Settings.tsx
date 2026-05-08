@@ -6,9 +6,15 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { authHeaders } from "@/hooks/use-auth";
-import { Phone, Bot, Bell, BellOff, Building2, Loader2, CheckCircle } from "lucide-react";
+import { useKnowledge, useAddKnowledge, useDeleteKnowledge, useToggleKnowledge } from "@/hooks/use-knowledge";
+import {
+  Phone, Bot, Bell, BellOff, Building2, Loader2, CheckCircle,
+  BookOpen, Plus, Trash2, FileText, ChevronDown, ChevronUp
+} from "lucide-react";
 
 interface TenantSettings {
   companyName: string;
@@ -19,6 +25,14 @@ interface TenantSettings {
   planTier: string;
 }
 
+const CATEGORIES = [
+  { value: "general",    label: "General" },
+  { value: "pricing",    label: "Pricing & Rates" },
+  { value: "procedures", label: "Service Procedures" },
+  { value: "policies",   label: "Company Policies" },
+  { value: "equipment",  label: "Equipment & Parts" },
+];
+
 export default function Settings() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<TenantSettings | null>(null);
@@ -26,13 +40,21 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [phone, setPhone] = useState("");
 
+  // Knowledge base state
+  const { data: knowledgeDocs, isLoading: kbLoading } = useKnowledge();
+  const addKnowledge   = useAddKnowledge();
+  const deleteKnowledge = useDeleteKnowledge();
+  const toggleKnowledge = useToggleKnowledge();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [kbTitle, setKbTitle]         = useState("");
+  const [kbContent, setKbContent]     = useState("");
+  const [kbCategory, setKbCategory]   = useState("general");
+  const [expandedDoc, setExpandedDoc] = useState<number | null>(null);
+
   useEffect(() => {
     fetch("/api/tenant/settings", { headers: authHeaders() })
       .then(r => r.json())
-      .then((data: TenantSettings) => {
-        setSettings(data);
-        setPhone(data.phone ?? "");
-      })
+      .then((data: TenantSettings) => { setSettings(data); setPhone(data.phone ?? ""); })
       .catch(() => toast({ title: "Error", description: "Could not load settings", variant: "destructive" }))
       .finally(() => setLoading(false));
   }, []);
@@ -57,6 +79,12 @@ export default function Settings() {
     }
   }
 
+  async function handleAddKnowledge() {
+    if (!kbTitle.trim() || !kbContent.trim()) return;
+    await addKnowledge.mutateAsync({ title: kbTitle.trim(), content: kbContent.trim(), category: kbCategory });
+    setKbTitle(""); setKbContent(""); setKbCategory("general"); setShowAddForm(false);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -64,7 +92,6 @@ export default function Settings() {
       </div>
     );
   }
-
   if (!settings) return null;
 
   return (
@@ -106,7 +133,7 @@ export default function Settings() {
             Briefing Phone Number
           </CardTitle>
           <CardDescription>
-            Bob calls this number for your morning (6 AM) and evening (6 PM) briefings. Must be a US mobile number.
+            Bob calls this number for your morning (6 AM) and evening (6 PM) briefings.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -126,9 +153,7 @@ export default function Settings() {
               <span className="ml-1">Save</span>
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Format: +1XXXXXXXXXX or (XXX) XXX-XXXX
-          </p>
+          <p className="text-xs text-muted-foreground mt-2">Format: +1XXXXXXXXXX</p>
         </CardContent>
       </Card>
 
@@ -152,27 +177,21 @@ export default function Settings() {
               disabled={saving}
             />
           </div>
-
           <Separator />
-
           <div className="flex items-center justify-between">
-            <div className="flex items-start gap-2">
-              <div>
-                <Label className="text-sm font-medium flex items-center gap-1.5">
-                  {settings.briefingEnabled
-                    ? <Bell className="w-3.5 h-3.5 text-emerald-600" />
-                    : <BellOff className="w-3.5 h-3.5 text-muted-foreground" />}
-                  Daily Voice Briefings
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Bob calls you at 6 AM &amp; 6 PM EDT with your schedule and alerts
-                </p>
-                {settings.briefingEnabled && !settings.phone && (
-                  <p className="text-xs text-amber-600 mt-1 font-medium">
-                    ⚠ Set a briefing phone number above to receive calls
-                  </p>
-                )}
-              </div>
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                {settings.briefingEnabled
+                  ? <Bell className="w-3.5 h-3.5 text-emerald-600" />
+                  : <BellOff className="w-3.5 h-3.5 text-muted-foreground" />}
+                Daily Voice Briefings
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Bob calls you at 6 AM &amp; 6 PM EDT with your schedule and alerts
+              </p>
+              {settings.briefingEnabled && !settings.phone && (
+                <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Set a briefing phone number above</p>
+              )}
             </div>
             <Switch
               checked={settings.briefingEnabled}
@@ -180,14 +199,134 @@ export default function Settings() {
               disabled={saving || !settings.bobEnabled}
             />
           </div>
-
           {!settings.bobEnabled && (
             <p className="text-xs text-muted-foreground italic">Enable Bob Chat first to use briefings.</p>
           )}
         </CardContent>
       </Card>
 
-      {/* Telnyx webhook info */}
+      {/* Knowledge Base */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BookOpen className="w-4 h-4" />
+                Bob's Knowledge Base
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Pricing, procedures, policies, equipment specs — Bob uses this to answer company-specific questions.
+              </CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setShowAddForm(v => !v)}>
+              <Plus className="w-4 h-4 mr-1" />
+              Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Add form */}
+          {showAddForm && (
+            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+              <Input
+                placeholder="Title  e.g. AC Tune-Up Pricing 2025"
+                value={kbTitle}
+                onChange={e => setKbTitle(e.target.value)}
+              />
+              <Select value={kbCategory} onValueChange={setKbCategory}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Textarea
+                placeholder="Paste your content here — pricing tables, policy text, equipment manuals, service checklists..."
+                value={kbContent}
+                onChange={e => setKbContent(e.target.value)}
+                rows={8}
+                className="text-sm"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                <Button
+                  size="sm"
+                  onClick={handleAddKnowledge}
+                  disabled={addKnowledge.isPending || !kbTitle.trim() || !kbContent.trim()}
+                >
+                  {addKnowledge.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                  Save to Knowledge Base
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Doc list */}
+          {kbLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : knowledgeDocs && knowledgeDocs.length > 0 ? (
+            <div className="space-y-2">
+              {knowledgeDocs.map(doc => (
+                <div key={doc.id} className="border rounded-lg overflow-hidden">
+                  <div className="flex items-center gap-3 p-3">
+                    <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-sm font-medium truncate ${!doc.isActive ? "text-muted-foreground line-through" : ""}`}>
+                          {doc.title}
+                        </span>
+                        <Badge variant="secondary" className="text-xs capitalize">{doc.category}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{doc.contentPreview}</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Switch
+                        checked={doc.isActive}
+                        onCheckedChange={checked => toggleKnowledge.mutate({ id: doc.id, isActive: checked })}
+                        className="scale-75"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-7 h-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
+                      >
+                        {expandedDoc === doc.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </div>
+                  {expandedDoc === doc.id && (
+                    <div className="border-t px-3 pb-3 pt-2 flex justify-end">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => { deleteKnowledge.mutate(doc.id); setExpandedDoc(null); }}
+                        disabled={deleteKnowledge.isPending}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1" />
+                        Delete this document
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No knowledge base documents yet.</p>
+              <p className="text-xs mt-1">Add pricing, procedures, or policies so Bob can reference them.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Telnyx webhook */}
       <Card className="border-dashed">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-muted-foreground">Telnyx Webhook (admin)</CardTitle>
@@ -197,7 +336,7 @@ export default function Settings() {
             https://field-app-production-d5c8.up.railway.app/api/voice/webhook
           </code>
           <p className="text-xs text-muted-foreground mt-2">
-            Set this as the Inbound Webhook URL in Telnyx Portal → My Numbers → Edit → Voice.
+            Telnyx Portal → My Numbers → Edit → Voice → set Inbound Webhook URL above.
           </p>
         </CardContent>
       </Card>

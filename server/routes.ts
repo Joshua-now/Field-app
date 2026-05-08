@@ -393,6 +393,63 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(rows);
   }));
 
+  // ── BOB KNOWLEDGE BASE ───────────────────────────────────────────────────
+  app.get("/api/bob/knowledge", isAuthenticated, asyncHandler(async (req, res) => {
+    const { bobKnowledge } = await import("@shared/schema");
+    const tenantId = getTenantId(req);
+    const docs = await db
+      .select({
+        id: bobKnowledge.id,
+        title: bobKnowledge.title,
+        category: bobKnowledge.category,
+        isActive: bobKnowledge.isActive,
+        createdAt: bobKnowledge.createdAt,
+        contentPreview: bobKnowledge.content,
+      })
+      .from(bobKnowledge)
+      .where(eq(bobKnowledge.tenantId, tenantId))
+      .orderBy(bobKnowledge.createdAt);
+
+    // Trim content preview to 200 chars
+    res.json(docs.map(d => ({ ...d, contentPreview: d.contentPreview?.slice(0, 200) })));
+  }));
+
+  app.post("/api/bob/knowledge", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const tenantId = getTenantId(req);
+    const { title, content, category } = req.body;
+    if (!title || typeof title !== "string" || title.trim().length === 0)
+      throw new ValidationError("title is required");
+    if (!content || typeof content !== "string" || content.trim().length < 10)
+      throw new ValidationError("content must be at least 10 characters");
+
+    const { ingestKnowledge } = await import("./bob/knowledge");
+    const result = await ingestKnowledge(tenantId, title.trim(), content.trim(), category || "general");
+    res.status(201).json({ id: result.id, chunkCount: result.chunkCount, message: "Knowledge ingested successfully" });
+  }));
+
+  app.delete("/api/bob/knowledge/:id", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const tenantId = getTenantId(req);
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new ValidationError("Invalid knowledge ID");
+    const { deleteKnowledge } = await import("./bob/knowledge");
+    await deleteKnowledge(tenantId, id);
+    res.json({ message: "Deleted" });
+  }));
+
+  app.patch("/api/bob/knowledge/:id/toggle", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const tenantId = getTenantId(req);
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new ValidationError("Invalid knowledge ID");
+    const { bobKnowledge } = await import("@shared/schema");
+    const [doc] = await db
+      .update(bobKnowledge)
+      .set({ isActive: req.body.isActive, updatedAt: new Date() })
+      .where(and(eq(bobKnowledge.id, id), eq(bobKnowledge.tenantId, tenantId)))
+      .returning();
+    if (!doc) throw new NotFoundError("Knowledge document");
+    res.json({ id: doc.id, isActive: doc.isActive });
+  }));
+
   // ── TENANT SETTINGS (owner only) ─────────────────────────────────────────
   app.get("/api/tenant/settings", isAuthenticated, asyncHandler(async (req, res) => {
     const { tenants } = await import("@shared/models/auth");

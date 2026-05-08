@@ -669,9 +669,16 @@ export async function runBobAgent(
     { role: "user", content: userMessage },
   ];
 
-  const systemPrompt = buildSystemPrompt(tenant, user);
+  // Inject knowledge base context if available
+  let knowledgeContext = "";
+  try {
+    const { buildKnowledgeContext } = await import("./knowledge");
+    knowledgeContext = await buildKnowledgeContext(tenantId, userMessage);
+  } catch { /* knowledge module optional */ }
+
+  const systemPrompt = buildSystemPrompt(tenant, user) + (knowledgeContext ? "\n\n" + knowledgeContext : "");
   const model = selectModel(userMessage);
-  console.log(`[Bob] Using model: ${model}`);
+  console.log(`[Bob] Using model: ${model}${knowledgeContext ? " (+knowledge)" : ""}`);
 
   // Agentic loop — up to 8 iterations
   for (let i = 0; i < 8; i++) {

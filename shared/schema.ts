@@ -376,7 +376,49 @@ export const bobMessagesRelations = relations(bobMessages, ({ one }) => ({
   }),
 }));
 
+// ─── BOB KNOWLEDGE BASE ───────────────────────────────────────────────────────
+
+export const bobKnowledge = pgTable("bob_knowledge", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),               // full original text
+  category: text("category").default("general"),    // pricing | procedures | policies | equipment | general
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_bob_knowledge_tenant").on(table.tenantId),
+]);
+
+export const bobKnowledgeChunks = pgTable("bob_knowledge_chunks", {
+  id: serial("id").primaryKey(),
+  knowledgeId: integer("knowledge_id").references(() => bobKnowledge.id, { onDelete: "cascade" }).notNull(),
+  tenantId: varchar("tenant_id").notNull(),          // denormalized for fast search
+  chunkIndex: integer("chunk_index").notNull(),
+  content: text("content").notNull(),
+  // embedding stored as text (JSON array) — pgvector column added via raw migration
+  embeddingJson: text("embedding_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_bob_chunks_knowledge").on(table.knowledgeId),
+  index("idx_bob_chunks_tenant").on(table.tenantId),
+]);
+
+export const bobKnowledgeRelations = relations(bobKnowledge, ({ many }) => ({
+  chunks: many(bobKnowledgeChunks),
+}));
+
+export const bobKnowledgeChunksRelations = relations(bobKnowledgeChunks, ({ one }) => ({
+  knowledge: one(bobKnowledge, {
+    fields: [bobKnowledgeChunks.knowledgeId],
+    references: [bobKnowledge.id],
+  }),
+}));
+
 // Types
 export type BobConversation = typeof bobConversations.$inferSelect;
 export type BobMessage = typeof bobMessages.$inferSelect;
 export type BobMemory = typeof bobMemory.$inferSelect;
+export type BobKnowledge = typeof bobKnowledge.$inferSelect;
+export type BobKnowledgeChunk = typeof bobKnowledgeChunks.$inferSelect;
