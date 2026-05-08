@@ -8,6 +8,7 @@ import {
   Contact,
   Package,
   Bot,
+  Settings,
   LogOut,
   Menu,
   X
@@ -30,6 +31,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { name: "Customers", href: "/customers", icon: Contact },
     { name: "Inventory", href: "/inventory", icon: Package },
     { name: "Bob", href: "/bob", icon: Bot },
+    { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   return (

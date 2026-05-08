@@ -90,7 +90,7 @@ export function startHeartbeat() {
       where: (t, { eq }) => eq(t.status, "active"),
     });
     for (const tenant of activeTenants) {
-      if (!tenant.bobEnabled) continue;
+      if (!tenant.bobEnabled || !(tenant as any).briefingEnabled) continue;
       const user = await db.query.users.findFirst({
         where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
       });
@@ -105,7 +105,7 @@ export function startHeartbeat() {
       where: (t, { eq }) => eq(t.status, "active"),
     });
     for (const tenant of activeTenants) {
-      if (!tenant.bobEnabled) continue;
+      if (!tenant.bobEnabled || !(tenant as any).briefingEnabled) continue;
       const user = await db.query.users.findFirst({
         where: and(eq(users.tenantId, tenant.id), eq(users.role, "owner")),
       });

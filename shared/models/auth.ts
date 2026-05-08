@@ -17,6 +17,7 @@ export const tenants = pgTable("tenants", {
   planTier: text("plan_tier").default("free"),       // free | starter | pro | enterprise
   status: text("status").default("active"),           // active | inactive | suspended
   bobEnabled: boolean("bob_enabled").default(false),
+  briefingEnabled: boolean("briefing_enabled").default(false), // opt-in for morning/evening voice briefings
   telnyxPhone: text("telnyx_phone"),
   ghlLocationId: text("ghl_location_id"),
   n8nBaseUrl: text("n8n_base_url"),

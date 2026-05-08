@@ -18,6 +18,7 @@ import Customers from "@/pages/Customers";
 import Inventory from "@/pages/Inventory";
 import CustomerPortal from "@/pages/CustomerPortal";
 import Bob from "@/pages/Bob";
+import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -52,6 +53,7 @@ function Router() {
       <Route path="/customers">{() => <ProtectedRoute component={Customers} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={Inventory} />}</Route>
       <Route path="/bob">{() => <ProtectedRoute component={Bob} />}</Route>
+      <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
       <Route path="/portal">{() => <CustomerPortal />}</Route>
       <Route component={NotFound} />
     </Switch>

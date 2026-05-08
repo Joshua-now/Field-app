@@ -22,6 +22,7 @@ import {
 } from "@shared/schema";
 import { runBobAgent } from "./bob/agent";
 import { handleVoiceWebhook } from "./bob/voice";
+import bcrypt from "bcryptjs";
 import axios from "axios";
 
 const DEFAULT_TENANT_ID = "default-tenant";
@@ -392,12 +393,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(rows);
   }));
 
+  // ── TENANT SETTINGS (owner only) ─────────────────────────────────────────
+  app.get("/api/tenant/settings", isAuthenticated, asyncHandler(async (req, res) => {
+    const { tenants } = await import("@shared/models/auth");
+    const tenantId = getTenantId(req);
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+    if (!tenant) throw new NotFoundError("Tenant");
+    res.json({
+      companyName: tenant.companyName,
+      email: tenant.email,
+      phone: tenant.phone,
+      bobEnabled: tenant.bobEnabled,
+      briefingEnabled: (tenant as any).briefingEnabled ?? false,
+      planTier: tenant.planTier,
+    });
+  }));
+
+  app.patch("/api/tenant/settings", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const { tenants } = await import("@shared/models/auth");
+    const tenantId = getTenantId(req);
+    const allowed = ["phone", "bobEnabled", "briefingEnabled", "companyName"];
+    const updates: Record<string, any> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (Object.keys(updates).length === 0) throw new ValidationError("No valid fields provided");
+    const [updated] = await db
+      .update(tenants)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(tenants.id, tenantId))
+      .returning();
+    res.json({
+      companyName: updated.companyName,
+      email: updated.email,
+      phone: updated.phone,
+      bobEnabled: updated.bobEnabled,
+      briefingEnabled: (updated as any).briefingEnabled ?? false,
+      planTier: updated.planTier,
+    });
+  }));
+
   // ── DEMO SEED (owner/admin only, one-time) ────────────────────────────────
   app.post("/api/admin/seed-demo", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
     const tenantId = getTenantId(req);
     const { technicians: techTable, customers: custTable, jobs: jobTable } = await import("@shared/schema");
     const { tenants } = await import("@shared/models/auth");
-    const bcrypt = await import("bcryptjs");
     const { eq: eqOp } = await import("drizzle-orm");
 
     // Guard: don't re-seed if data already exists
