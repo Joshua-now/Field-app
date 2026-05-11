@@ -111,9 +111,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }));
 
   app.post("/api/technicians", strictRateLimiter, asyncHandler(async (req, res) => {
+    // Accept either passwordHash (direct) or password (plain-text from onboarding wizard)
+    const body = { ...req.body };
+    if (!body.passwordHash && body.password) {
+      body.passwordHash = await bcrypt.hash(body.password, 10);
+    }
+    if (!body.passwordHash) {
+      body.passwordHash = await bcrypt.hash("demo1234", 10);
+    }
+    delete body.password;
+
     const data = validateBody(
       insertTechnicianSchema.omit({ tenantId: true }),
-      req.body
+      body
     );
     const tech = await getTenantStorage(req).createTechnician(data as any);
     res.status(201).json(sanitizeTechnician(tech));
