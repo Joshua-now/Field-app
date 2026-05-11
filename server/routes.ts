@@ -737,38 +737,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
 
-    // 1. Check for existing outbound voice profiles
+    // 1. Get or create an outbound voice profile
     const listRes = await axios.get("https://api.telnyx.com/v2/outbound_voice_profiles", { headers });
     const profiles = listRes.data?.data ?? [];
 
     let profileId: string;
+    let profileName: string;
     let action: string;
 
     if (profiles.length > 0) {
-      // Use the first existing profile
       profileId = profiles[0].id;
+      profileName = profiles[0].name;
       action = "used_existing";
     } else {
-      // Create a new outbound voice profile
       const createRes = await axios.post(
         "https://api.telnyx.com/v2/outbound_voice_profiles",
-        {
-          name: "Contractor OS Outbound",
-          traffic_type: "conversational",
-          service_plan: "global",
-          enabled: true,
-          connections: [connectionId],
-        },
+        { name: "Contractor OS Outbound", traffic_type: "conversational", enabled: true },
         { headers }
       );
       profileId = createRes.data?.data?.id;
+      profileName = createRes.data?.data?.name;
       action = "created_new";
     }
 
-    // 2. Assign the connection to the profile (patch the profile's connections list)
-    const patchRes = await axios.patch(
-      `https://api.telnyx.com/v2/outbound_voice_profiles/${profileId}`,
-      { connections: [connectionId] },
+    // 2. The correct fix: PATCH the call control APPLICATION to point at the profile
+    const appPatch = await axios.patch(
+      `https://api.telnyx.com/v2/call_control_applications/${connectionId}`,
+      { outbound_voice_profile_id: profileId },
       { headers }
     );
 
@@ -776,8 +771,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       ok: true,
       action,
       profileId,
+      profileName,
       connectionId,
-      profileName: patchRes.data?.data?.name,
+      appName: appPatch.data?.data?.application_name,
+      outboundProfileId: appPatch.data?.data?.outbound_voice_profile_id,
     });
   }));
 
