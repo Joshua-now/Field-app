@@ -600,9 +600,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const { tenants } = await import("@shared/models/auth");
     const { eq: eqOp } = await import("drizzle-orm");
 
-    // Guard: don't re-seed if data already exists
-    const existingTechs = await db.select().from(techTable).where(eqOp(techTable.tenantId, tenantId)).limit(1);
-    if (existingTechs.length > 0) {
+    // Guard: don't re-seed if customers/jobs already exist
+    const existingCustomers = await db.select().from(custTable).where(eqOp(custTable.tenantId, tenantId)).limit(1);
+    if (existingCustomers.length > 0) {
       throw new AppError(409, "Demo data already exists for this tenant. Delete existing records first.");
     }
 

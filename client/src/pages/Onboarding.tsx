@@ -413,8 +413,8 @@ export default function Onboarding() {
         {currentStep === "technician" && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Add Your First Technician</CardTitle>
-              <CardDescription>Your techs log in with their email and PIN to access the field app. You can add more later in Settings.</CardDescription>
+              <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Add Your First Technician <span className="text-xs font-normal text-muted-foreground ml-1">(optional)</span></CardTitle>
+              <CardDescription>Your techs log in with their email and PIN to access the field app. Skip this if you want to add techs later from Settings — or load sample data to see how it looks first.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -449,6 +449,9 @@ export default function Onboarding() {
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setCurrentStep("tools")}>
                   <ChevronLeft className="h-4 w-4 mr-1" /> Back
+                </Button>
+                <Button variant="ghost" onClick={() => setCurrentStep("demo")} disabled={loading}>
+                  Skip for Now
                 </Button>
                 <Button className="flex-1" onClick={createTechnician} disabled={loading}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
