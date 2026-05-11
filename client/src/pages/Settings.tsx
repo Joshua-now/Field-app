@@ -13,7 +13,7 @@ import { authHeaders } from "@/hooks/use-auth";
 import { useKnowledge, useAddKnowledge, useDeleteKnowledge, useToggleKnowledge } from "@/hooks/use-knowledge";
 import {
   Phone, Bot, Bell, BellOff, Building2, Loader2, CheckCircle,
-  BookOpen, Plus, Trash2, FileText, ChevronDown, ChevronUp, Sparkles
+  BookOpen, Plus, Trash2, FileText, ChevronDown, ChevronUp, Sparkles, Upload
 } from "lucide-react";
 
 interface TenantSettings {
@@ -94,6 +94,7 @@ export default function Settings() {
   const [kbContent, setKbContent]     = useState("");
   const [kbCategory, setKbCategory]   = useState("general");
   const [expandedDoc, setExpandedDoc] = useState<number | null>(null);
+  const [uploading, setUploading]     = useState(false);
 
   useEffect(() => {
     fetch("/api/tenant/settings", { headers: authHeaders() })
@@ -127,6 +128,32 @@ export default function Settings() {
     if (!kbTitle.trim() || !kbContent.trim()) return;
     await addKnowledge.mutateAsync({ title: kbTitle.trim(), content: kbContent.trim(), category: kbCategory });
     setKbTitle(""); setKbContent(""); setKbCategory("general"); setShowAddForm(false);
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("title", file.name.replace(/\.[^.]+$/, ""));
+      form.append("category", kbCategory);
+      const res = await fetch("/api/bob/knowledge/upload", {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Upload failed");
+      toast({ title: "File added to knowledge base", description: `Split into ${data.chunkCount} searchable chunks.` });
+      // reset file input
+      e.target.value = "";
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
   }
 
   if (loading) {
@@ -269,10 +296,23 @@ export default function Settings() {
                 Pricing, procedures, policies, equipment specs — Lexi uses this to answer company-specific questions.
               </CardDescription>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setShowAddForm(v => !v)}>
-              <Plus className="w-4 h-4 mr-1" />
-              Add
-            </Button>
+            <div className="flex gap-2">
+              <label className={`cursor-pointer inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                {uploading ? "Uploading..." : "Upload File"}
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md,.csv"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
+              </label>
+              <Button size="sm" variant="outline" onClick={() => setShowAddForm(v => !v)}>
+                <Plus className="w-4 h-4 mr-1" />
+                Paste Text
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

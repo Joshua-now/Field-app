@@ -24,6 +24,9 @@ import { runBobAgent } from "./bob/agent";
 import { handleVoiceWebhook } from "./bob/voice";
 import bcrypt from "bcryptjs";
 import axios from "axios";
+import multer from "multer";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
 
 const DEFAULT_TENANT_ID = "default-tenant";
 
@@ -528,6 +531,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const { ingestKnowledge } = await import("./bob/knowledge");
     const result = await ingestKnowledge(tenantId, title.trim(), content.trim(), category || "general");
     res.status(201).json({ id: result.id, chunkCount: result.chunkCount, message: "Knowledge ingested successfully" });
+  }));
+
+  app.post("/api/bob/knowledge/upload", requireRole("owner", "admin"), upload.single("file"), asyncHandler(async (req, res) => {
+    const tenantId = getTenantId(req);
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) throw new ValidationError("No file uploaded");
+
+    const title = (req.body.title || file.originalname).trim();
+    const category = req.body.category || "general";
+    const mime = file.mimetype;
+    const ext = file.originalname.split(".").pop()?.toLowerCase();
+
+    let content = "";
+
+    if (mime === "text/plain" || ext === "txt" || ext === "md" || ext === "csv") {
+      content = file.buffer.toString("utf8");
+    } else if (mime === "application/pdf" || ext === "pdf") {
+      const pdfParse = await import("pdf-parse");
+      const parsed = await pdfParse.default(file.buffer);
+      content = parsed.text;
+    } else if (
+      mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      ext === "docx"
+    ) {
+      const mammoth = await import("mammoth");
+      const result = await mammoth.extractRawText({ buffer: file.buffer });
+      content = result.value;
+    } else {
+      throw new ValidationError("Unsupported file type. Upload a PDF, Word (.docx), or text file.");
+    }
+
+    content = content.trim();
+    if (content.length < 10) throw new ValidationError("File appears to be empty or unreadable.");
+
+    const { ingestKnowledge } = await import("./bob/knowledge");
+    const result = await ingestKnowledge(tenantId, title, content, category);
+    res.status(201).json({ id: result.id, chunkCount: result.chunkCount, message: "File ingested successfully" });
   }));
 
   app.delete("/api/bob/knowledge/:id", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
