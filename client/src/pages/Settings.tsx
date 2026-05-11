@@ -37,6 +37,27 @@ export default function Settings() {
   const { toast } = useToast();
   const [seeding, setSeeding] = useState(false);
   const [seeded, setSeeded] = useState(false);
+  const [testCalling, setTestCalling] = useState(false);
+
+  async function testCall() {
+    setTestCalling(true);
+    try {
+      const res = await fetch("/api/admin/test-call", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.message || "Test call failed", variant: "destructive" });
+      } else {
+        toast({ title: `Lexi is calling ${data.callingTo} now — pick up!` });
+      }
+    } catch {
+      toast({ title: "Request failed", variant: "destructive" });
+    } finally {
+      setTestCalling(false);
+    }
+  }
 
   async function loadSampleData() {
     setSeeding(true);
@@ -177,6 +198,13 @@ export default function Settings() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">Format: +1XXXXXXXXXX</p>
+          <div className="pt-2">
+            <Button variant="outline" size="sm" onClick={testCall} disabled={testCalling}>
+              {testCalling ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Phone className="w-4 h-4 mr-2" />}
+              Test Call Now
+            </Button>
+            <p className="text-xs text-muted-foreground mt-1">Lexi will call the number above right now with a morning briefing.</p>
+          </div>
         </CardContent>
       </Card>
 
