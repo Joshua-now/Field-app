@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, getToken } from "@/hooks/use-auth";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -30,7 +30,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   // After auth resolves, check if this tenant has completed onboarding
   useEffect(() => {
     if (!isLoading && user) {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       fetch("/api/tenant/onboarding/status", {
         headers: { Authorization: `Bearer ${token}` },
       })
