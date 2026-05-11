@@ -119,8 +119,10 @@ export class GhlAdapter implements CrmAdapter {
 
   async testConnection(): Promise<{ ok: boolean; error?: string }> {
     try {
-      await axios.get(`${BASE}/locations/${this.locationId}`, {
+      // contacts/search only needs contacts.readonly — no locations scope required
+      await axios.get(`${BASE}/contacts/search`, {
         headers: this.headers,
+        params: { locationId: this.locationId, query: "test", limit: 1 },
         timeout: 8000,
       });
       return { ok: true };
