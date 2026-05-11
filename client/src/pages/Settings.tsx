@@ -13,7 +13,7 @@ import { authHeaders } from "@/hooks/use-auth";
 import { useKnowledge, useAddKnowledge, useDeleteKnowledge, useToggleKnowledge } from "@/hooks/use-knowledge";
 import {
   Phone, Bot, Bell, BellOff, Building2, Loader2, CheckCircle,
-  BookOpen, Plus, Trash2, FileText, ChevronDown, ChevronUp
+  BookOpen, Plus, Trash2, FileText, ChevronDown, ChevronUp, Sparkles
 } from "lucide-react";
 
 interface TenantSettings {
@@ -35,6 +35,29 @@ const CATEGORIES = [
 
 export default function Settings() {
   const { toast } = useToast();
+  const [seeding, setSeeding] = useState(false);
+  const [seeded, setSeeded] = useState(false);
+
+  async function loadSampleData() {
+    setSeeding(true);
+    try {
+      const res = await fetch("/api/admin/seed-demo", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.message || "Could not load sample data", variant: "destructive" });
+      } else {
+        setSeeded(true);
+        toast({ title: "Sample data loaded! Refresh the dashboard to see it." });
+      }
+    } catch {
+      toast({ title: "Request failed", variant: "destructive" });
+    } finally {
+      setSeeding(false);
+    }
+  }
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -322,6 +345,32 @@ export default function Settings() {
               <p className="text-sm">No knowledge base documents yet.</p>
               <p className="text-xs mt-1">Add pricing, procedures, or policies so Lexi can reference them.</p>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Load Sample Data */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="w-4 h-4" />
+            Sample Data
+          </CardTitle>
+          <CardDescription>
+            Load demo technicians, customers, and jobs so you can see the app with real-looking data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {seeded ? (
+            <div className="flex items-center gap-2 text-sm text-green-700">
+              <CheckCircle className="w-4 h-4" />
+              Sample data loaded — refresh the dashboard to see it.
+            </div>
+          ) : (
+            <Button onClick={loadSampleData} disabled={seeding} variant="outline">
+              {seeding ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+              Load Sample Jobs & Customers
+            </Button>
           )}
         </CardContent>
       </Card>
