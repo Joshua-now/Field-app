@@ -728,6 +728,59 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   }));
 
+  // ── ONE-TIME: CREATE + ASSIGN OUTBOUND VOICE PROFILE ─────────────────────
+  app.post("/api/admin/fix-telnyx-outbound", requireRole("owner", "admin"), asyncHandler(async (_req, res) => {
+    const apiKey = process.env.TELNYX_API_KEY;
+    const connectionId = process.env.TELNYX_CONNECTION_ID;
+    if (!apiKey) throw new ValidationError("TELNYX_API_KEY not set");
+    if (!connectionId) throw new ValidationError("TELNYX_CONNECTION_ID not set");
+
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+
+    // 1. Check for existing outbound voice profiles
+    const listRes = await axios.get("https://api.telnyx.com/v2/outbound_voice_profiles", { headers });
+    const profiles = listRes.data?.data ?? [];
+
+    let profileId: string;
+    let action: string;
+
+    if (profiles.length > 0) {
+      // Use the first existing profile
+      profileId = profiles[0].id;
+      action = "used_existing";
+    } else {
+      // Create a new outbound voice profile
+      const createRes = await axios.post(
+        "https://api.telnyx.com/v2/outbound_voice_profiles",
+        {
+          name: "Contractor OS Outbound",
+          traffic_type: "conversational",
+          service_plan: "global",
+          enabled: true,
+          connections: [connectionId],
+        },
+        { headers }
+      );
+      profileId = createRes.data?.data?.id;
+      action = "created_new";
+    }
+
+    // 2. Assign the connection to the profile (patch the profile's connections list)
+    const patchRes = await axios.patch(
+      `https://api.telnyx.com/v2/outbound_voice_profiles/${profileId}`,
+      { connections: [connectionId] },
+      { headers }
+    );
+
+    res.json({
+      ok: true,
+      action,
+      profileId,
+      connectionId,
+      profileName: patchRes.data?.data?.name,
+    });
+  }));
+
   // ── TEST CALL (owner/admin only) ─────────────────────────────────────────
   app.post("/api/admin/test-call", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
     const tenantId = getTenantId(req);

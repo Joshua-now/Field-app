@@ -39,6 +39,27 @@ export default function Settings() {
   const [seeded, setSeeded] = useState(false);
   const [testCalling, setTestCalling] = useState(false);
   const [fixingTelnyx, setFixingTelnyx] = useState(false);
+  const [fixingOutbound, setFixingOutbound] = useState(false);
+
+  async function fixTelnyxOutbound() {
+    setFixingOutbound(true);
+    try {
+      const res = await fetch("/api/admin/fix-telnyx-outbound", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed");
+      toast({
+        title: "✅ Outbound profile assigned!",
+        description: `Profile "${data.profileName}" linked to your call app.`,
+      });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setFixingOutbound(false);
+    }
+  }
 
   async function fixTelnyxNumber() {
     setFixingTelnyx(true);
@@ -255,6 +276,10 @@ export default function Settings() {
               <Button variant="outline" size="sm" onClick={fixTelnyxNumber} disabled={fixingTelnyx}>
                 {fixingTelnyx ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Fix Phone Routing
+              </Button>
+              <Button variant="outline" size="sm" onClick={fixTelnyxOutbound} disabled={fixingOutbound}>
+                {fixingOutbound ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Fix Outbound Profile
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-1">Lexi will call the number above right now with a morning briefing.</p>
