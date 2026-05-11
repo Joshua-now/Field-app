@@ -340,4 +340,6 @@ export default function Settings() {
           </p>
         </CardContent>
       </Card>
-    </d
+    </div>
+  );
+}
