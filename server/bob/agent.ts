@@ -676,7 +676,7 @@ MARKETING EXAMPLES — call tools immediately for owners/admins:
 - "Mark lead 12 as booked" → confirm lead ID and status, then update_lead_status
 ` : "";
 
-  return `You are Bob, the AI field operations assistant for ${companyName}. Today is ${today}.
+  return `You are Lexi, the AI field operations assistant for ${companyName}. Today is ${today}.
 
 You work alongside ${userName} (role: ${userRole}) and have direct access to the job schedule, customer records, and all connected systems.
 

@@ -98,7 +98,7 @@ export default function Settings() {
     <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground text-sm mt-1">Manage your account and Bob AI preferences.</p>
+        <p className="text-muted-foreground text-sm mt-1">Manage your account and Lexi AI preferences.</p>
       </div>
 
       {/* Company */}
@@ -133,7 +133,7 @@ export default function Settings() {
             Briefing Phone Number
           </CardTitle>
           <CardDescription>
-            Bob calls this number for your morning (6 AM) and evening (6 PM) briefings.
+            Lexi calls this number for your morning (6 AM) and evening (6 PM) briefings.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -157,19 +157,19 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Bob AI Toggles */}
+      {/* Lexi AI Toggles */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Bot className="w-4 h-4" />
-            Bob AI
+            Lexi AI
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label className="text-sm font-medium">Bob Chat</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Enable Bob for chat and field questions</p>
+              <Label className="text-sm font-medium">Lexi Chat</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">Enable Lexi for chat and field questions</p>
             </div>
             <Switch
               checked={settings.bobEnabled}
@@ -187,7 +187,7 @@ export default function Settings() {
                 Daily Voice Briefings
               </Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Bob calls you at 6 AM &amp; 6 PM EDT with your schedule and alerts
+                Lexi calls you at 6 AM &amp; 6 PM EDT with your schedule and alerts
               </p>
               {settings.briefingEnabled && !settings.phone && (
                 <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Set a briefing phone number above</p>
@@ -200,7 +200,7 @@ export default function Settings() {
             />
           </div>
           {!settings.bobEnabled && (
-            <p className="text-xs text-muted-foreground italic">Enable Bob Chat first to use briefings.</p>
+            <p className="text-xs text-muted-foreground italic">Enable Lexi Chat first to use briefings.</p>
           )}
         </CardContent>
       </Card>
@@ -212,10 +212,10 @@ export default function Settings() {
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BookOpen className="w-4 h-4" />
-                Bob's Knowledge Base
+                Lexi's Knowledge Base
               </CardTitle>
               <CardDescription className="mt-1">
-                Pricing, procedures, policies, equipment specs — Bob uses this to answer company-specific questions.
+                Pricing, procedures, policies, equipment specs — Lexi uses this to answer company-specific questions.
               </CardDescription>
             </div>
             <Button size="sm" variant="outline" onClick={() => setShowAddForm(v => !v)}>
@@ -320,7 +320,7 @@ export default function Settings() {
             <div className="text-center py-8 text-muted-foreground">
               <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
               <p className="text-sm">No knowledge base documents yet.</p>
-              <p className="text-xs mt-1">Add pricing, procedures, or policies so Bob can reference them.</p>
+              <p className="text-xs mt-1">Add pricing, procedures, or policies so Lexi can reference them.</p>
             </div>
           )}
         </CardContent>
@@ -340,6 +340,4 @@ export default function Settings() {
           </p>
         </CardContent>
       </Card>
-    </div>
-  );
-}
+    </d

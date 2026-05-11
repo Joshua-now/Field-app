@@ -33,7 +33,7 @@ async function telnyxAction(callControlId: string, action: string, body: object 
 async function speak(callControlId: string, text: string) {
   await telnyxAction(callControlId, "speak", {
     payload: text,
-    voice: "male",
+    voice: "female",
     language: "en-US",
     command_id: `speak-${Date.now()}`,
   });
@@ -60,7 +60,7 @@ async function hangup(callControlId: string) {
 const GOODBYE_PHRASES = [
   "goodbye", "good bye", "bye bye", "that's all", "that's it", "that is all",
   "nothing else", "no thanks", "no thank you", "i'm good", "we're good",
-  "hang up", "end call", "end the call", "thanks bob", "thank you bob",
+  "hang up", "end call", "end the call", "thanks lexi", "thank you lexi",
   "that's everything", "talk later", "talk to you later", "have a good one",
   "have a great one", "i'm done", "all done", "we're done", "i'm set",
 ];
@@ -115,7 +115,7 @@ async function bobThink(
     .trim();
   if (!apiKey) return "I'm having trouble connecting right now. Check the app.";
 
-  const systemPrompt = `You are Bob, an AI field operations assistant on a PHONE CALL with a contractor.
+  const systemPrompt = `You are Lexi, an AI field operations assistant on a PHONE CALL with a contractor.
 
 CURRENT SCHEDULE CONTEXT:
 ${scheduleContext}
@@ -174,7 +174,7 @@ async function buildBriefingText(tenantId: string, type: "morning" | "evening", 
 
   if (type === "morning") {
     const hasJobs = !context.includes("No jobs today");
-    let text = "Good morning. This is Bob. ";
+    let text = "Good morning. This is Lexi. ";
     if (!hasJobs) {
       text += "Nothing on the schedule today. Enjoy the day. Anything you need?";
     } else {
@@ -193,7 +193,7 @@ async function buildBriefingText(tenantId: string, type: "morning" | "evening", 
     }
     return text;
   } else {
-    let text = "Good evening. Bob here with your wrap-up. ";
+    let text = "Good evening. Lexi here with your wrap-up. ";
     text += context + " ";
     text += "Good work today. Anything else before you call it a night?";
     return text;
@@ -273,7 +273,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
           state.silenceCount = (state.silenceCount || 0) + 1;
           if (state.silenceCount >= 2) {
             state.ending = true;
-            await speak(callControlId, "Sounds like we got cut off. I'll let you go. Bob out.");
+            await speak(callControlId, "Sounds like we got cut off. I'll let you go. Lexi out.");
             setTimeout(async () => {
               try { await hangup(callControlId); } catch {}
               activeCalls.delete(callControlId);
@@ -290,7 +290,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
         // Check for goodbye
         if (isGoodbye(transcript)) {
           state.ending = true;
-          await speak(callControlId, "Sounds good. Have a great one. Bob out.");
+          await speak(callControlId, "Sounds good. Have a great one. Lexi out.");
           setTimeout(async () => {
             try { await hangup(callControlId); } catch {}
             activeCalls.delete(callControlId);
@@ -301,7 +301,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
         // Max conversation length guard — wrap up gracefully
         if (state.turnCount >= MAX_VOICE_TURNS) {
           state.ending = true;
-          await speak(callControlId, "We've been at it for a while — I'll let you get back to it. Check the app for anything else. Bob out.");
+          await speak(callControlId, "We've been at it for a while — I'll let you get back to it. Check the app for anything else. Lexi out.");
           setTimeout(async () => {
             try { await hangup(callControlId); } catch {}
             activeCalls.delete(callControlId);
@@ -335,6 +335,4 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
   } catch (e: any) {
     console.error(`[Voice] Error on ${eventType}:`, e?.message);
     try { await hangup(callControlId); } catch {}
-    activeCalls.delete(callControlId);
-  }
-}
+    activeCalls.delete(callControlI

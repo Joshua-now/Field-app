@@ -147,7 +147,7 @@ export default function Bob() {
             <Bot className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-semibold">Bob</h1>
+            <h1 className="font-semibold">Lexi</h1>
             <p className="text-xs text-muted-foreground">Your AI field operations assistant</p>
           </div>
           <Badge variant="secondary" className="ml-auto text-emerald-700 bg-emerald-50 border-emerald-200">Online</Badge>
@@ -160,13 +160,13 @@ export default function Bob() {
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
                 <Bot className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-xl font-semibold">Hey, I'm Bob</h2>
+              <h2 className="text-xl font-semibold">Hey, I'm Lexi</h2>
               <p className="text-muted-foreground max-w-sm text-sm">
-                Your AI field operations assistant. I handle briefings, monitor your stack, manage jobs, and keep everything running. Start a conversation or I'll call you at 6 AM.
+                Your AI field operations assistant. I handle briefings, look up jobs and customers, update statuses, and keep everything running. Start a conversation or I'll call you at 6 AM.
               </p>
               <Button onClick={() => createConv.mutate()}>
                 <Plus className="w-4 h-4 mr-2" />
-                Start Talking to Bob
+                Start Talking to Lexi
               </Button>
             </div>
           )}
@@ -215,7 +215,7 @@ export default function Bob() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Message Bob… (Enter to send, Shift+Enter for newline)"
+                placeholder="Message Lexi… (Enter to send, Shift+Enter for newline)"
                 className="resize-none min-h-[60px] max-h-[160px]"
                 rows={2}
               />
@@ -235,6 +235,4 @@ export default function Bob() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
+  

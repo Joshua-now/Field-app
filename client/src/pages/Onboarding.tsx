@@ -269,7 +269,7 @@ export default function Onboarding() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" /> Company Setup</CardTitle>
-              <CardDescription>Tell us about your business so Bob can introduce himself correctly to your team.</CardDescription>
+              <CardDescription>Tell us about your business so Lexi can introduce herself correctly to your team.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-1.5">
@@ -321,7 +321,7 @@ export default function Onboarding() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Plug className="h-5 w-5" /> Connect Your CRM</CardTitle>
-              <CardDescription>Bob can search your CRM contacts, check lead status, and add notes — right from the chat.</CardDescription>
+              <CardDescription>Lexi can search your CRM contacts, check lead status, and add notes — right from the chat.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="grid grid-cols-2 gap-3">
@@ -476,11 +476,11 @@ export default function Onboarding() {
               <div className="bg-muted rounded-lg p-4 space-y-2 text-sm">
                 <div className="font-medium">What's waiting for you:</div>
                 <ul className="space-y-1 text-muted-foreground">
-                  <li className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" /> Bob AI is on and ready to take questions</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" /> Lexi AI is on and ready to take questions</li>
                   <li className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" /> Your technician can log in from the field</li>
                   <li className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" /> Add jobs, customers, and inventory from the dashboard</li>
                   {crmType !== "none" && (
-                    <li className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" /> CRM connected — Bob can search your contacts</li>
+                    <li className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" /> CRM connected — Lexi can search your contacts</li>
                   )}
                 </ul>
               </div>
@@ -511,5 +511,4 @@ export default function Onboarding() {
         )}
       </div>
     </div>
-  );
-}
+  )
