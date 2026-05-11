@@ -649,6 +649,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   }));
 
+  // ── TEST CALL (owner/admin only) ─────────────────────────────────────────
+  app.post("/api/admin/test-call", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const tenantId = getTenantId(req);
+    const { tenants } = await import("@shared/models/auth");
+    const { eq: eqOp } = await import("drizzle-orm");
+
+    const tenant = await db.select().from(tenants).where(eqOp(tenants.id, tenantId)).limit(1).then(r => r[0]);
+    if (!tenant) throw new NotFoundError("Tenant");
+
+    const phone = (tenant as any).phone;
+    if (!phone) throw new ValidationError("No briefing phone number set — add it in Settings first.");
+
+    const selfUrl = process.env.SELF_URL || "https://field-app-production-d5c8.up.railway.app";
+    const webhookUrl = `${selfUrl}/api/voice/webhook`;
+    const clientState = Buffer.from(JSON.stringify({ tenantId, briefingType: "morning" })).toString("base64");
+
+    const r = await axios.post(
+      "https://api.telnyx.com/v2/calls",
+      {
+        connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_APP_ID,
+        to: phone,
+        from: process.env.TELNYX_PHONE_NUMBER,
+        webhook_url: webhookUrl,
+        webhook_url_method: "POST",
+        client_state: clientState,
+      },
+      { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
+    );
+
+    res.json({ ok: true, callControlId: r.data?.data?.call_control_id, callingTo: phone });
+  }));
+
   // ── CRM INTEGRATION ──────────────────────────────────────────────────────
 
   // Save CRM config (owner only)
