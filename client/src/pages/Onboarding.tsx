@@ -87,7 +87,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       await fetch("/api/tenant/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -112,7 +112,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       const body: Record<string, string> = { crmType };
       if (crmType !== "none") {
         if (crmType === "servicetitan") {
@@ -139,7 +139,7 @@ export default function Onboarding() {
     setTestingCrm(true);
     setCrmTestResult(null);
     try {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       // Save first, then test
       const body: Record<string, string> = { crmType };
       if (crmType === "servicetitan") {
@@ -178,7 +178,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       const res = await fetch("/api/technicians", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -205,7 +205,7 @@ export default function Onboarding() {
   async function seedDemo() {
     setSeeding(true);
     try {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       await fetch("/api/admin/seed-demo", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -221,7 +221,7 @@ export default function Onboarding() {
   async function finish() {
     setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
+      const token = getToken();
       await fetch("/api/tenant/onboarding/complete", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
