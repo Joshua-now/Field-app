@@ -335,4 +335,6 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
   } catch (e: any) {
     console.error(`[Voice] Error on ${eventType}:`, e?.message);
     try { await hangup(callControlId); } catch {}
-    activeCalls.delete(callControlI
+    activeCalls.delete(callControlId);
+  }
+}
