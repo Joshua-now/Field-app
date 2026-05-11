@@ -30,7 +30,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { name: "Technicians", href: "/technicians", icon: Users },
     { name: "Customers", href: "/customers", icon: Contact },
     { name: "Inventory", href: "/inventory", icon: Package },
-    { name: "Bob", href: "/bob", icon: Bot },
+    { name: "Lexi", href: "/bob", icon: Bot },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 
@@ -144,4 +144,4 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
-}
+}
