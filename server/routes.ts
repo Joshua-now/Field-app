@@ -689,6 +689,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   }));
 
+  // ── ONE-TIME: REASSIGN TELNYX NUMBER TO CORRECT CONNECTION ───────────────
+  // Hit POST /api/admin/fix-telnyx-number once to wire the number to the right app
+  app.post("/api/admin/fix-telnyx-number", requireRole("owner", "admin"), asyncHandler(async (_req, res) => {
+    const apiKey = process.env.TELNYX_API_KEY;
+    const targetConnectionId = process.env.TELNYX_CONNECTION_ID;
+    const phoneNumber = process.env.TELNYX_PHONE_NUMBER;
+
+    if (!apiKey) throw new ValidationError("TELNYX_API_KEY not set in environment");
+    if (!targetConnectionId) throw new ValidationError("TELNYX_CONNECTION_ID not set in environment");
+    if (!phoneNumber) throw new ValidationError("TELNYX_PHONE_NUMBER not set in environment");
+
+    // Step 1: Find the phone number record
+    const listRes = await axios.get(`https://api.telnyx.com/v2/phone_numbers?filter[phone_number]=${encodeURIComponent(phoneNumber)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const numbers = listRes.data?.data;
+    if (!numbers || numbers.length === 0) {
+      throw new ValidationError(`Phone number ${phoneNumber} not found in this Telnyx account`);
+    }
+    const numberId = numbers[0].id;
+    const currentConnectionId = numbers[0].connection_id;
+
+    // Step 2: Reassign to the correct connection
+    const patchRes = await axios.patch(
+      `https://api.telnyx.com/v2/phone_numbers/${numberId}`,
+      { connection_id: targetConnectionId },
+      { headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" } }
+    );
+
+    res.json({
+      ok: true,
+      numberId,
+      phoneNumber,
+      previousConnectionId: currentConnectionId,
+      newConnectionId: targetConnectionId,
+      telnyxStatus: patchRes.data?.data?.status,
+    });
+  }));
+
   // ── TEST CALL (owner/admin only) ─────────────────────────────────────────
   app.post("/api/admin/test-call", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
     const tenantId = getTenantId(req);
@@ -705,18 +744,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const webhookUrl = `${selfUrl}/api/voice/webhook`;
     const clientState = Buffer.from(JSON.stringify({ tenantId, briefingType: "morning" })).toString("base64");
 
-    const r = await axios.post(
-      "https://api.telnyx.com/v2/calls",
-      {
-        connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_APP_ID,
-        to: phone,
-        from: process.env.TELNYX_PHONE_NUMBER,
-        webhook_url: webhookUrl,
-        webhook_url_method: "POST",
-        client_state: clientState,
-      },
-      { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
-    );
+    let r: any;
+    try {
+      r = await axios.post(
+        "https://api.telnyx.com/v2/calls",
+        {
+          connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_APP_ID,
+          to: phone,
+          from: process.env.TELNYX_PHONE_NUMBER,
+          webhook_url: webhookUrl,
+          webhook_url_method: "POST",
+          client_state: clientState,
+        },
+        { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
+      );
+    } catch (err: any) {
+      const telnyxError = err?.response?.data;
+      console.error("[TestCall] Telnyx error:", JSON.stringify(telnyxError ?? err?.message));
+      const detail = telnyxError?.errors?.[0]?.detail || telnyxError?.errors?.[0]?.title || err?.message || "Telnyx call failed";
+      throw new AppError(detail, err?.response?.status || 500);
+    }
 
     res.json({ ok: true, callControlId: r.data?.data?.call_control_id, callingTo: phone });
   }));
