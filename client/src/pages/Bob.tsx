@@ -101,7 +101,7 @@ export default function Bob() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-      {/* Sidebar — conversation list */}
+      {/* Sidebar - conversation list */}
       <aside className="w-64 border-r bg-muted/30 flex flex-col">
         <div className="p-4 border-b">
           <Button
@@ -215,7 +215,7 @@ export default function Bob() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Message Lexi… (Enter to send, Shift+Enter for newline)"
+                placeholder="Message Lexi... (Enter to send, Shift+Enter for newline)"
                 className="resize-none min-h-[60px] max-h-[160px]"
                 rows={2}
               />
@@ -235,4 +235,6 @@ export default function Bob() {
           </div>
         )}
       </div>
-  
+    </div>
+  );
+}
