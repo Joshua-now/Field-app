@@ -38,6 +38,27 @@ export default function Settings() {
   const [seeding, setSeeding] = useState(false);
   const [seeded, setSeeded] = useState(false);
   const [testCalling, setTestCalling] = useState(false);
+  const [fixingTelnyx, setFixingTelnyx] = useState(false);
+
+  async function fixTelnyxNumber() {
+    setFixingTelnyx(true);
+    try {
+      const res = await fetch("/api/admin/fix-telnyx-number", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed");
+      toast({
+        title: "✅ Telnyx number reassigned!",
+        description: `+${data.phoneNumber} → connection ${data.newConnectionId}`,
+      });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setFixingTelnyx(false);
+    }
+  }
 
   async function testCall() {
     setTestCalling(true);
@@ -226,10 +247,16 @@ export default function Settings() {
           </div>
           <p className="text-xs text-muted-foreground mt-2">Format: +1XXXXXXXXXX</p>
           <div className="pt-2">
-            <Button variant="outline" size="sm" onClick={testCall} disabled={testCalling}>
-              {testCalling ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Phone className="w-4 h-4 mr-2" />}
-              Test Call Now
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={testCall} disabled={testCalling}>
+                {testCalling ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Phone className="w-4 h-4 mr-2" />}
+                Test Call Now
+              </Button>
+              <Button variant="outline" size="sm" onClick={fixTelnyxNumber} disabled={fixingTelnyx}>
+                {fixingTelnyx ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Fix Phone Routing
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground mt-1">Lexi will call the number above right now with a morning briefing.</p>
           </div>
         </CardContent>
