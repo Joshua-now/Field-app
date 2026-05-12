@@ -42,10 +42,11 @@ async function speak(callControlId: string, text: string) {
 async function listen(callControlId: string) {
   await telnyxAction(callControlId, "gather", {
     input: ["speech"],
-    speech_timeout: 6,
-    speech_end_silence: 1.5,
+    speech_timeout: 15,         // wait up to 15s for speech to start
+    speech_end_silence: 2,      // 2s of silence after speech ends
     minimum_input_length: 1,
     language: "en-US",
+    action_on_empty_result: true, // always fire webhook even if nothing heard
     command_id: `gather-${Date.now()}`,
   });
 }
@@ -271,7 +272,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
         // Silence handling
         if (!transcript || transcript.trim().length < 2) {
           state.silenceCount = (state.silenceCount || 0) + 1;
-          if (state.silenceCount >= 2) {
+          if (state.silenceCount >= 4) {
             state.ending = true;
             await speak(callControlId, "Sounds like we got cut off. I'll let you go. Lexi out.");
             setTimeout(async () => {
