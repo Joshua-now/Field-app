@@ -1,13 +1,13 @@
-/**
- * Bob Voice — Interactive Telnyx call handler
+﻿/**
+ * Bob Voice — Interactive Telnyx call handler (Transcription API)
  *
  * Flow:
  *  1. heartbeat.ts dials contractor → call answered
- *  2. Bob speaks morning/evening briefing
- *  3. Bob asks "Anything you need?" and LISTENS
- *  4. Contractor speaks → Telnyx transcribes → Bob processes with OpenRouter
- *  5. Bob responds and listens again — full back-and-forth conversation
- *  6. Ends when contractor says a clear goodbye phrase
+ *  2. transcription_start() fires immediately — listens to contractor throughout the call
+ *  3. Lexi speaks morning/evening briefing
+ *  4. Contractor speaks → Telnyx fires call.transcription events → debounced into full utterances
+ *  5. Lexi responds — full back-and-forth conversation
+ *  6. Ends on goodbye phrase or 10s of inactivity
  */
 
 import type { Request, Response } from "express";
@@ -16,9 +16,9 @@ import { db } from "../db";
 import { jobs, customers, technicians } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
-const TELNYX_API    = "https://api.telnyx.com/v2";
+const TELNYX_API     = "https://api.telnyx.com/v2";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const VOICE_MODEL   = "openai/gpt-4o-mini"; // Fast for voice — low latency
+const VOICE_MODEL    = "openai/gpt-4o-mini";
 
 // ─── TELNYX ACTIONS ───────────────────────────────────────────────────────────
 
@@ -39,16 +39,11 @@ async function speak(callControlId: string, text: string) {
   });
 }
 
-async function listen(callControlId: string) {
-  await telnyxAction(callControlId, "gather", {
-    input: ["speech"],
-    speech_timeout: 15,
-    speech_end_silence: 2,
-    minimum_input_length: 1,
-    language: "en-US",
-    speech_model: "default",       // REQUIRED — activates Telnyx STT engine
-    action_on_empty_result: true,  // always fire webhook even on silence
-    command_id: `gather-${Date.now()}`,
+// Start Telnyx real-time transcription on the contractor's audio track
+async function startTranscription(callControlId: string) {
+  await telnyxAction(callControlId, "transcription_start", {
+    transcription_tracks: "inbound",   // inbound = audio FROM the remote party (contractor)
+    transcription_language: "en",
   });
 }
 
@@ -56,8 +51,7 @@ async function hangup(callControlId: string) {
   await telnyxAction(callControlId, "hangup");
 }
 
-// ─── GOODBYE DETECTION ───────────────────────────────────────────────────────
-// Only fire on unambiguous terminal phrases — never on "no" alone (valid answer)
+// ─── GOODBYE DETECTION ────────────────────────────────────────────────────────
 
 const GOODBYE_PHRASES = [
   "goodbye", "good bye", "bye bye", "that's all", "that's it", "that is all",
@@ -69,15 +63,14 @@ const GOODBYE_PHRASES = [
 
 function isGoodbye(text: string): boolean {
   const t = text.toLowerCase().trim().replace(/[.,!?]+$/, "");
-  // Must be an explicit goodbye phrase — not just "no" or "nope"
   return GOODBYE_PHRASES.some(p => t === p || t.includes(p));
 }
 
-// ─── SCHEDULE CONTEXT ────────────────────────────────────────────────────────
+// ─── SCHEDULE CONTEXT ─────────────────────────────────────────────────────────
 
 async function getBriefingContext(tenantId: string, type: "morning" | "evening"): Promise<string> {
   const tz = process.env.TENANT_TIMEZONE || "America/New_York";
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD in tenant TZ
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
   const todaysJobs = await db.query.jobs.findMany({
     where: and(eq(jobs.tenantId, tenantId), eq(jobs.scheduledDate, today)),
     with: { customer: true, technician: true },
@@ -85,7 +78,7 @@ async function getBriefingContext(tenantId: string, type: "morning" | "evening")
   }) as any[];
 
   const completed = todaysJobs.filter(j => j.status === "completed");
-  const active    = todaysJobs.filter(j => ["in_progress","en_route","arrived"].includes(j.status || ""));
+  const active    = todaysJobs.filter(j => ["in_progress", "en_route", "arrived"].includes(j.status || ""));
   const scheduled = todaysJobs.filter(j => j.status === "scheduled");
   const revenue   = completed.reduce((s, j) => s + parseFloat(String(j.totalCost || "0")), 0);
 
@@ -105,7 +98,7 @@ async function getBriefingContext(tenantId: string, type: "morning" | "evening")
   }
 }
 
-// ─── BOB VOICE BRAIN ─────────────────────────────────────────────────────────
+// ─── BOB VOICE BRAIN ──────────────────────────────────────────────────────────
 
 async function bobThink(
   conversationHistory: { role: string; content: string }[],
@@ -155,7 +148,7 @@ RULES FOR VOICE:
 
 // ─── IN-MEMORY CALL STATE ─────────────────────────────────────────────────────
 
-const MAX_VOICE_TURNS = 12; // Max back-and-forth exchanges before wrapping up
+const MAX_VOICE_TURNS = 12;
 
 interface CallState {
   tenantId: string;
@@ -164,8 +157,12 @@ interface CallState {
   history: { role: string; content: string }[];
   briefingDone: boolean;
   silenceCount: number;
-  ending: boolean;      // true = goodbye in progress, suppress further listen()
-  turnCount: number;    // number of contractor utterances so far
+  ending: boolean;
+  turnCount: number;
+  speaking: boolean;                                       // true while Lexi is playing TTS
+  pendingTranscript: string;                               // accumulates transcript chunks
+  transcriptTimer: ReturnType<typeof setTimeout> | null;  // debounce: process after pause
+  silenceTimer: ReturnType<typeof setTimeout> | null;     // inactivity: prompt if silent
 }
 
 const activeCalls = new Map<string, CallState>();
@@ -218,7 +215,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
   if (!callControlId) return;
 
   // Decode context sent by heartbeat
-  let tenantId: string           = "default-tenant";
+  let tenantId: string                    = "default-tenant";
   let briefingType: "morning" | "evening" = "morning";
   if (clientState) {
     try {
@@ -233,7 +230,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
 
       case "call.initiated":
       case "call.ringing":
-        break; // Nothing yet
+        break;
 
       case "call.answered": {
         const scheduleContext = await getBriefingContext(tenantId, briefingType);
@@ -246,7 +243,19 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
           silenceCount: 0,
           ending: false,
           turnCount: 0,
+          speaking: true,
+          pendingTranscript: "",
+          transcriptTimer: null,
+          silenceTimer: null,
         });
+
+        // Start continuous transcription on contractor's audio track
+        try {
+          await startTranscription(callControlId);
+          console.log("[Voice] Transcription pipeline started");
+        } catch (e: any) {
+          console.error("[Voice] transcription_start failed:", e?.message, JSON.stringify(e?.response?.data));
+        }
 
         const briefingText = await buildBriefingText(tenantId, briefingType, scheduleContext);
         const state = activeCalls.get(callControlId)!;
@@ -257,88 +266,125 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
         break;
       }
 
-      case "call.speak.ended": {
-        // After speaking, listen — but not if we're wrapping up
+      case "call.speak.started": {
+        // Lexi started talking — block transcript processing to avoid echo confusion
         const state = activeCalls.get(callControlId);
-        if (state && !state.ending) await listen(callControlId);
+        if (state) {
+          state.speaking = true;
+          if (state.transcriptTimer) { clearTimeout(state.transcriptTimer); state.transcriptTimer = null; }
+          if (state.silenceTimer)    { clearTimeout(state.silenceTimer);    state.silenceTimer    = null; }
+          state.pendingTranscript = "";
+        }
         break;
       }
 
-      case "call.gather.ended": {
-        // Log full payload once so we can verify the transcript field name
-        console.log(`[Voice] gather.ended raw:`, JSON.stringify({
-          speech_result: payload?.speech_result,
-          digits: payload?.digits,
-          result: payload?.result,
-          transcription_result: payload?.transcription_result,
-        }));
-        const transcript = payload?.speech_result?.transcript
-          || payload?.result
-          || payload?.transcription_result
-          || payload?.digits
-          || "";
-        console.log(`[Voice] Heard: "${transcript}"`);
-
+      case "call.speak.ended": {
+        // Lexi finished — contractor's turn
         const state = activeCalls.get(callControlId);
-        if (!state) { await hangup(callControlId); return; }
+        if (state && !state.ending) {
+          state.speaking = false;
 
-        // Silence handling
-        if (!transcript || transcript.trim().length < 2) {
-          state.silenceCount = (state.silenceCount || 0) + 1;
-          if (state.silenceCount >= 4) {
-            state.ending = true;
-            await speak(callControlId, "Sounds like we got cut off. I'll let you go. Lexi out.");
-            setTimeout(async () => {
-              try { await hangup(callControlId); } catch {}
-              activeCalls.delete(callControlId);
-            }, 4000);
-          } else {
-            await speak(callControlId, "Didn't catch that. What do you need?");
+          // Inactivity timer: if nothing heard for 10s, prompt
+          if (state.silenceTimer) clearTimeout(state.silenceTimer);
+          state.silenceTimer = setTimeout(async () => {
+            try {
+              if (state.ending || state.speaking) return;
+              state.silenceCount = (state.silenceCount || 0) + 1;
+              if (state.silenceCount >= 3) {
+                state.ending = true;
+                await speak(callControlId, "Sounds like we got cut off. I'll let you go. Lexi out.");
+                setTimeout(async () => {
+                  try { await hangup(callControlId); } catch {}
+                  activeCalls.delete(callControlId);
+                }, 4000);
+              } else {
+                state.speaking = true;
+                await speak(callControlId, "Still there? What do you need?");
+              }
+            } catch (e: any) {
+              console.error("[Voice] Silence timer error:", e?.message);
+            }
+          }, 10000);
+        }
+        break;
+      }
+
+      case "call.transcription": {
+        // Telnyx has transcribed something the contractor said
+        const state = activeCalls.get(callControlId);
+        if (!state || state.ending || state.speaking) return;
+
+        const data       = payload?.transcription_data;
+        const transcript = (data?.transcript || "").trim();
+        const isFinal    = data?.is_final === true;
+
+        console.log(`[Voice] Transcript (final=${isFinal}): "${transcript}"`);
+
+        if (!isFinal || !transcript) return;
+
+        // Got real speech — reset inactivity timer
+        if (state.silenceTimer) { clearTimeout(state.silenceTimer); state.silenceTimer = null; }
+        state.silenceCount = 0;
+
+        // Accumulate chunks
+        state.pendingTranscript += (state.pendingTranscript ? " " : "") + transcript;
+
+        // Debounce: 1.5s pause = contractor done speaking, process the full utterance
+        if (state.transcriptTimer) clearTimeout(state.transcriptTimer);
+        state.transcriptTimer = setTimeout(async () => {
+          try {
+            state.transcriptTimer = null;
+            const fullTranscript = state.pendingTranscript.trim();
+            state.pendingTranscript = "";
+
+            if (!fullTranscript || fullTranscript.length < 2) return;
+
+            console.log(`[Voice] Processing: "${fullTranscript}"`);
+            state.turnCount = (state.turnCount || 0) + 1;
+
+            if (isGoodbye(fullTranscript)) {
+              state.ending = true;
+              await speak(callControlId, "Sounds good. Have a great one. Lexi out.");
+              setTimeout(async () => {
+                try { await hangup(callControlId); } catch {}
+                activeCalls.delete(callControlId);
+              }, 4000);
+              return;
+            }
+
+            if (state.turnCount >= MAX_VOICE_TURNS) {
+              state.ending = true;
+              await speak(callControlId, "We've been at it for a while — I'll let you get back to it. Check the app for anything else. Lexi out.");
+              setTimeout(async () => {
+                try { await hangup(callControlId); } catch {}
+                activeCalls.delete(callControlId);
+              }, 4000);
+              return;
+            }
+
+            state.history.push({ role: "user", content: fullTranscript });
+            const reply = await bobThink(state.history, state.scheduleContext);
+            state.history.push({ role: "assistant", content: reply });
+
+            if (state.history.length > 20) state.history = state.history.slice(-20);
+
+            state.speaking = true;
+            await speak(callControlId, reply);
+          } catch (e: any) {
+            console.error("[Voice] Transcript processing error:", e?.message);
           }
-          return;
-        }
+        }, 1500);
 
-        state.silenceCount = 0; // Reset on valid input
-        state.turnCount = (state.turnCount || 0) + 1;
-
-        // Check for goodbye
-        if (isGoodbye(transcript)) {
-          state.ending = true;
-          await speak(callControlId, "Sounds good. Have a great one. Lexi out.");
-          setTimeout(async () => {
-            try { await hangup(callControlId); } catch {}
-            activeCalls.delete(callControlId);
-          }, 4000);
-          return;
-        }
-
-        // Max conversation length guard — wrap up gracefully
-        if (state.turnCount >= MAX_VOICE_TURNS) {
-          state.ending = true;
-          await speak(callControlId, "We've been at it for a while — I'll let you get back to it. Check the app for anything else. Lexi out.");
-          setTimeout(async () => {
-            try { await hangup(callControlId); } catch {}
-            activeCalls.delete(callControlId);
-          }, 4000);
-          return;
-        }
-
-        // Bob thinks and responds
-        state.history.push({ role: "user", content: transcript });
-        const reply = await bobThink(state.history, state.scheduleContext);
-        state.history.push({ role: "assistant", content: reply });
-
-        // Keep history lean (last 10 exchanges + initial context)
-        if (state.history.length > 20) {
-          state.history = state.history.slice(-20);
-        }
-
-        await speak(callControlId, reply);
         break;
       }
 
       case "call.hangup": {
         console.log(`[Voice] Call ended: ${callControlId?.slice(0, 20)}`);
+        const state = activeCalls.get(callControlId);
+        if (state) {
+          if (state.transcriptTimer) clearTimeout(state.transcriptTimer);
+          if (state.silenceTimer)    clearTimeout(state.silenceTimer);
+        }
         activeCalls.delete(callControlId);
         break;
       }
