@@ -26,8 +26,9 @@ export async function tenantContextMiddleware(req: Request, _res: Response, next
 
     next();
   } catch (err) {
-    console.error("[TenantContext] Error:", err);
-    next();
+    console.error("[TenantContext] DB error loading tenant:", err);
+    // Don't silently proceed — a DB failure here means something is very wrong
+    return _res.status(503).json({ message: "Service temporarily unavailable. Please retry." });
   }
 }
 

@@ -7,6 +7,9 @@ import { startHeartbeat } from "./bob/heartbeat";
 const app = express();
 const httpServer = createServer(app);
 
+// Trust Railway's load balancer so req.ip / rate limiting work correctly
+app.set("trust proxy", 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -63,7 +66,10 @@ app.use((req, res, next) => {
   const RECOMMENDED   = ["OPENROUTER_API_KEY", "TELNYX_API_KEY", "TELNYX_PHONE_NUMBER", "TELNYX_CONNECTION_ID"];
   if (process.env.NODE_ENV === "production") {
     for (const v of REQUIRED_PROD) {
-      if (!process.env[v]) log(`⛔ MISSING REQUIRED env var: ${v}`, "startup");
+      if (!process.env[v]) {
+        // Crash hard — missing JWT_SECRET or DATABASE_URL means the app is broken
+        throw new Error(`⛔ MISSING REQUIRED env var in production: ${v} — set it in Railway and redeploy`);
+      }
     }
   }
   for (const v of RECOMMENDED) {

@@ -68,8 +68,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── TELNYX VOICE WEBHOOK (public — Telnyx calls this, no JWT) ───────────────
   app.post("/api/voice/webhook", handleVoiceWebhook);
 
-  // ── OPENROUTER DIAGNOSTIC (public) ────────────────────────────────────────
-  app.get("/api/bob/ping", asyncHandler(async (_req, res) => {
+  // ── OPENROUTER DIAGNOSTIC (auth-protected — returns API key prefix, never expose publicly) ──
+  app.get("/api/bob/ping", isAuthenticated, asyncHandler(async (_req, res) => {
     const rawKey = process.env.OPENROUTER_API_KEY || "";
     const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "").replace(/^["'`]|["'`]$/g, "").trim();
     const keyInfo = {
@@ -418,8 +418,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── AD LEADS (owner/admin UI + public intake webhook) ────────────────────
 
   // Public webhook — receives leads from Speed-to-Lead, web forms, Google/Meta
-  // Auth: tenant API key in header (X-Tenant-Key) — no JWT required
+  // Auth: pre-shared secret in X-Webhook-Secret header + tenant ID
   app.post("/api/leads/inbound", asyncHandler(async (req, res) => {
+    // Verify pre-shared webhook secret — prevents random internet traffic from injecting leads
+    const webhookSecret = process.env.LEADS_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const provided = req.headers["x-webhook-secret"] as string;
+      if (!provided || provided !== webhookSecret) {
+        throw new AppError(401, "Invalid or missing webhook secret");
+      }
+    }
+
     // Identify tenant by API key or slug passed in body
     const tenantKey = req.headers["x-tenant-id"] as string || req.body.tenantId;
     if (!tenantKey) throw new ValidationError("x-tenant-id header required");
@@ -812,7 +821,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const telnyxError = err?.response?.data;
       console.error("[TestCall] Telnyx error:", JSON.stringify(telnyxError ?? err?.message));
       const detail = telnyxError?.errors?.[0]?.detail || telnyxError?.errors?.[0]?.title || err?.message || "Telnyx call failed";
-      throw new AppError(detail, err?.response?.status || 500);
+      throw new AppError(err?.response?.status || 500, detail);
     }
 
     res.json({ ok: true, callControlId: r.data?.data?.call_control_id, callingTo: phone });

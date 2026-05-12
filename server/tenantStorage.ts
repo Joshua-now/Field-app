@@ -290,8 +290,10 @@ export class TenantScopedStorage implements ITenantStorage {
 
   async updateJobChecklistItem(id: number, updates: { isCompleted?: boolean; notes?: string }): Promise<JobChecklistItem> {
     const updateData: any = { ...updates };
-    if (updates.isCompleted) {
+    if (updates.isCompleted === true) {
       updateData.completedAt = new Date();
+    } else if (updates.isCompleted === false) {
+      updateData.completedAt = null; // Clear timestamp when un-checking an item
     }
     const [updated] = await db.update(jobChecklistItems)
       .set(updateData)

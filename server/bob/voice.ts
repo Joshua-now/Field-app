@@ -42,11 +42,12 @@ async function speak(callControlId: string, text: string) {
 async function listen(callControlId: string) {
   await telnyxAction(callControlId, "gather", {
     input: ["speech"],
-    speech_timeout: 15,         // wait up to 15s for speech to start
-    speech_end_silence: 2,      // 2s of silence after speech ends
+    speech_timeout: 15,
+    speech_end_silence: 2,
     minimum_input_length: 1,
     language: "en-US",
-    action_on_empty_result: true, // always fire webhook even if nothing heard
+    speech_model: "default",       // REQUIRED — activates Telnyx STT engine
+    action_on_empty_result: true,  // always fire webhook even on silence
     command_id: `gather-${Date.now()}`,
   });
 }
@@ -75,7 +76,8 @@ function isGoodbye(text: string): boolean {
 // ─── SCHEDULE CONTEXT ────────────────────────────────────────────────────────
 
 async function getBriefingContext(tenantId: string, type: "morning" | "evening"): Promise<string> {
-  const today = new Date().toISOString().split("T")[0];
+  const tz = process.env.TENANT_TIMEZONE || "America/New_York";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD in tenant TZ
   const todaysJobs = await db.query.jobs.findMany({
     where: and(eq(jobs.tenantId, tenantId), eq(jobs.scheduledDate, today)),
     with: { customer: true, technician: true },
@@ -263,7 +265,18 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
       }
 
       case "call.gather.ended": {
-        const transcript = payload?.speech_result?.transcript || payload?.digits || "";
+        // Log full payload once so we can verify the transcript field name
+        console.log(`[Voice] gather.ended raw:`, JSON.stringify({
+          speech_result: payload?.speech_result,
+          digits: payload?.digits,
+          result: payload?.result,
+          transcription_result: payload?.transcription_result,
+        }));
+        const transcript = payload?.speech_result?.transcript
+          || payload?.result
+          || payload?.transcription_result
+          || payload?.digits
+          || "";
         console.log(`[Voice] Heard: "${transcript}"`);
 
         const state = activeCalls.get(callControlId);

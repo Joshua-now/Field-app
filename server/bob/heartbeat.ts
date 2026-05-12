@@ -83,8 +83,8 @@ async function startBriefingCall(tenant: any, _user: any, briefingType: "morning
 export function startHeartbeat() {
   console.log("[Heartbeat] Service started");
 
-  // Morning briefing — 10:00 UTC = 6:00 AM EDT
-  cron.schedule("0 10 * * *", async () => {
+  // Morning briefing — 6:00 AM ET (DST-aware via IANA timezone)
+  cron.schedule("0 6 * * *", async () => {
     console.log("[Heartbeat] Morning briefing...");
     let activeTenants: any[] = [];
     try {
@@ -106,10 +106,10 @@ export function startHeartbeat() {
         console.error(`[Heartbeat] Morning briefing failed for tenant ${tenant.id}:`, e.message);
       }
     }
-  });
+  }, { timezone: "America/New_York" });
 
-  // Evening briefing — 22:00 UTC = 6:00 PM EDT
-  cron.schedule("0 22 * * *", async () => {
+  // Evening briefing — 6:00 PM ET (DST-aware via IANA timezone)
+  cron.schedule("0 18 * * *", async () => {
     console.log("[Heartbeat] Evening briefing...");
     let activeTenants: any[] = [];
     try {
@@ -131,7 +131,7 @@ export function startHeartbeat() {
         console.error(`[Heartbeat] Evening briefing failed for tenant ${tenant.id}:`, e.message);
       }
     }
-  });
+  }, { timezone: "America/New_York" });
 
   // Hourly health sweep — every hour at :30
   cron.schedule("30 * * * *", async () => {
