@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+const fs = require('fs');
+
+const content = `import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { getToken } from "@/hooks/use-auth";
 import { Users, Building2, Briefcase, MessageSquare, RefreshCw, ChevronRight, CheckCircle, XCircle, LogOut, Shield } from "lucide-react";
 
 function authH() {
-  return { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` };
+  return { "Content-Type": "application/json", Authorization: \`Bearer \${getToken()}\` };
 }
 
 function StatCard({ icon: Icon, label, value, color }: any) {
@@ -47,7 +49,7 @@ export default function SuperAdmin() {
     setSelected(id);
     setDetail(null);
     try {
-      const res = await fetch(`/api/superadmin/tenants/${id}`, { headers: authH() });
+      const res = await fetch(\`/api/superadmin/tenants/\${id}\`, { headers: authH() });
       if (res.ok) setDetail(await res.json());
     } catch {}
   };
@@ -55,7 +57,7 @@ export default function SuperAdmin() {
   const impersonate = async (tenantId: string, companyName: string) => {
     setImpersonating(tenantId);
     try {
-      const res = await fetch(`/api/superadmin/tenants/${tenantId}/impersonate`, { method: "POST", headers: authH() });
+      const res = await fetch(\`/api/superadmin/tenants/\${tenantId}/impersonate\`, { method: "POST", headers: authH() });
       if (res.ok) {
         const data = await res.json();
         localStorage.setItem("impersonate_token", data.token);
@@ -197,3 +199,7 @@ export default function SuperAdmin() {
     </div>
   );
 }
+`;
+
+fs.writeFileSync('C:\\Users\\13212\\Desktop\\Field-app\\client\\src\\pages\\SuperAdmin.tsx', content, 'utf8');
+console.log('Done — SuperAdmin.tsx written');
