@@ -21,6 +21,7 @@ import CustomerPortal from "@/pages/CustomerPortal";
 import Bob from "@/pages/Bob";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
+import SuperAdmin from "@/pages/SuperAdmin";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -73,6 +74,7 @@ function Router() {
       <Route path="/inventory">{() => <ProtectedRoute component={Inventory} />}</Route>
       <Route path="/bob">{() => <ProtectedRoute component={Bob} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
+      <Route path="/superadmin">{() => <ProtectedRoute component={SuperAdmin} />}</Route>
       <Route path="/portal">{() => <CustomerPortal />}</Route>
       <Route component={NotFound} />
     </Switch>

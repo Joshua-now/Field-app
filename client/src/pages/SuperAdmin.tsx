@@ -1,0 +1,2 @@
+(Get-Content "C:\Users\13212\Desktop\Field-app\client\src\App.tsx") -replace '<Route path="/portal">', '<Route path="/superadmin">{() => <ProtectedRoute component={SuperAdmin} />}</Route>
+      <Route path="/portal">' | Set-Content "C:\Users\13212\Desktop\Field-app\client\src\App.tsx"
