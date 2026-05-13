@@ -11,7 +11,7 @@ import { tenantContextMiddleware } from "./middleware/tenantContext";
 import { db, getHealthStatus } from "./db";
 import { securityHeaders, requestIdMiddleware } from "./middleware/security";
 import { auditLogMiddleware } from "./middleware/auditLog";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { bobConversations, bobMessages } from "@shared/schema";
 import {
   insertTechnicianSchema,
