@@ -38,6 +38,28 @@ function selectModel(input: string): string {
   return MODELS.sonnet;
 }
 
+
+// ─── RETRY HELPER ─────────────────────────────────────────────────────────────
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelayMs = 500): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.response?.status;
+      // Don't retry auth errors or client errors
+      if (status && status < 500 && status !== 429) throw err;
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        console.warn(`[Bob] Retry ${attempt}/${maxAttempts} after ${delay}ms — ${err?.message}`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ─── FIELD DATA TOOLS ─────────────────────────────────────────────────────────
 
 async function getTodaySchedule(tenantId: string, technicianName?: string): Promise<any> {
@@ -371,22 +393,8 @@ async function checkRailwayServices() {
   }));
 }
 
-async function searchGHLContacts(name: string) {
-  try {
-    const r = await axios.get("https://services.leadconnectorhq.com/contacts/search", {
-      headers: {
-        Authorization: `Bearer ${process.env.GHL_PIT_TOKEN}`,
-        "Content-Type": "application/json",
-        Version: "2021-07-28",
-      },
-      params: { locationId: process.env.GHL_LOCATION_ID, query: name, limit: 5 },
-      timeout: 8000,
-    });
-    return r.data?.contacts || [];
-  } catch (e: any) {
-    return { error: e.message };
-  }
-}
+// searchGHLContacts removed — CRM search is handled by the adapter in executeTool (search_crm_contact)
+// which uses the tenant's configured CRM credentials, not hardcoded env vars.
 
 // ─── TOOL DEFINITIONS ─────────────────────────────────────────────────────────
 const BOB_TOOLS = [
@@ -589,8 +597,49 @@ const BOB_TOOLS = [
 ];
 
 // ─── TOOL EXECUTOR ────────────────────────────────────────────────────────────
-async function executeTool(name: string, args: any, tenantId: string, userRole = "staff"): Promise<any> {
+// Write tools that require explicit prior confirmation in the conversation
+const WRITE_TOOLS = new Set(["update_job_status", "send_sms_to_customer", "add_job_note"]);
+
+// Check whether the most-recent assistant message in the conversation contains a confirmation request.
+// This is a belt-and-suspenders guard: the system prompt tells the model to ask first, but we
+// also verify server-side that the message history shows the model DID ask before we execute.
+function lastAssistantAskedForConfirmation(messages: any[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "tool") continue; // skip tool result messages
+    if (m.role === "assistant") {
+      const text = (typeof m.content === "string" ? m.content : "").toLowerCase();
+      return (
+        text.includes("shall i") ||
+        text.includes("should i") ||
+        text.includes("want me to") ||
+        text.includes("confirm") ||
+        text.includes("proceed?") ||
+        text.includes("go ahead") ||
+        text.includes("add this note") ||
+        text.includes("send this") ||
+        text.includes("update it")
+      );
+    }
+    break;
+  }
+  return false;
+}
+
+async function executeTool(name: string, args: any, tenantId: string, userRole = "staff", conversationMessages: any[] = []): Promise<any> {
   console.log(`[Bob] tool: ${name} | role: ${userRole}`, JSON.stringify(args));
+
+  // Server-side confirmation guard for destructive write tools.
+  // If the model attempts to call a write tool without having asked the user first
+  // (visible in conversation history), we block the call and return an instruction to confirm.
+  if (WRITE_TOOLS.has(name) && !lastAssistantAskedForConfirmation(conversationMessages)) {
+    console.warn(`[Bob] Write tool "${name}" called without prior confirmation — blocking.`);
+    return {
+      blocked: true,
+      reason: `Tool "${name}" requires explicit user confirmation before executing. Show the user what you intend to do and ask for their approval first.`,
+    };
+  }
+
   try {
     switch (name) {
       // Field reads
@@ -766,7 +815,10 @@ export async function runBobAgent(
   try {
     const { buildKnowledgeContext } = await import("./knowledge");
     knowledgeContext = await buildKnowledgeContext(tenantId, userMessage);
-  } catch { /* knowledge module optional */ }
+  } catch (kErr: any) {
+    // Knowledge retrieval failure is non-fatal — log it but continue without context
+    console.warn("[Bob] Knowledge retrieval failed (non-fatal):", kErr?.message);
+  }
 
   const systemPrompt = buildSystemPrompt(tenant, user, callerRole) + (knowledgeContext ? "\n\n" + knowledgeContext : "");
   const model = selectModel(userMessage);
@@ -776,7 +828,7 @@ export async function runBobAgent(
   for (let i = 0; i < 8; i++) {
     let response: any;
     try {
-      response = await axios.post(
+      response = await withRetry(() => axios.post(
         "https://openrouter.ai/api/v1/chat/completions",
         {
           model,
@@ -793,7 +845,7 @@ export async function runBobAgent(
           },
           timeout: 30000,
         }
-      );
+      ));
     } catch (e: any) {
       console.error("[Bob] OpenRouter error:", e?.response?.data || e.message);
       const orMsg = e?.response?.data?.error?.message || e?.response?.data?.message || e.message;
@@ -815,7 +867,7 @@ export async function runBobAgent(
     for (const tc of msg.tool_calls) {
       let args: any = {};
       try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
-      const result = await executeTool(tc.function.name, args, tenantId, callerRole);
+      const result = await executeTool(tc.function.name, args, tenantId, callerRole, messages);
       messages.push({
         role: "tool",
         tool_call_id: tc.id,
