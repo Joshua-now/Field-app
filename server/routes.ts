@@ -6,7 +6,7 @@ import { isAuthenticated, requireRole } from "./auth/jwt";
 import { authRouter } from "./auth/routes";
 import { validateStatusTransition, JobStatus } from "@shared/jobStateMachine";
 import { errorHandler, asyncHandler, AppError, NotFoundError, ValidationError } from "./middleware/errorHandler";
-import { apiRateLimiter, strictRateLimiter } from "./middleware/rateLimiter";
+import { apiRateLimiter, strictRateLimiter, bobRateLimiter } from "./middleware/rateLimiter";
 import { tenantContextMiddleware, getTenantId as getTenantIdFromContext } from "./middleware/tenantContext";
 import { db, getHealthStatus } from "./db";
 import { securityHeaders, requestIdMiddleware } from "./middleware/security";
@@ -132,7 +132,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(201).json(sanitizeTechnician(tech));
   }));
 
-  app.put("/api/technicians/:id", asyncHandler(async (req, res) => {
+  app.put("/api/technicians/:id", requireRole("owner", "admin", "technician"), asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid technician ID");
 
@@ -203,7 +203,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(customer);
   }));
 
-  app.delete("/api/customers/:id", asyncHandler(async (req, res) => {
+  app.delete("/api/customers/:id", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid customer ID");
     const ok = await getTenantStorage(req).deleteCustomer(id);
@@ -265,7 +265,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(updated);
   }));
 
-  app.delete("/api/jobs/:id", asyncHandler(async (req, res) => {
+  app.delete("/api/jobs/:id", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid job ID");
     const ok = await getTenantStorage(req).deleteJob(id);
@@ -377,8 +377,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }));
 
   app.get("/api/bob/conversations/:id/messages", asyncHandler(async (req, res) => {
+    const tenantId = getTenantId(req);
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid conversation ID");
+    // Verify conversation belongs to the authenticated tenant before returning messages
+    const conv = await db.query.bobConversations.findFirst({
+      where: (t: any, { and: a, eq: e }: any) => a(e(t.id, id), e(t.tenantId, tenantId)),
+    });
+    if (!conv) throw new NotFoundError("Conversation");
     const msgs = await db.query.bobMessages.findMany({
       where: (t: any, { eq }: any) => eq(t.conversationId, id),
       orderBy: (t: any, { asc }: any) => [asc(t.createdAt)],
@@ -386,7 +392,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(msgs);
   }));
 
-  app.post("/api/bob/conversations/:id/messages", asyncHandler(async (req, res) => {
+  app.post("/api/bob/conversations/:id/messages", bobRateLimiter, asyncHandler(async (req, res) => {
     const tenantId = getTenantId(req);
     const conversationId = Number(req.params.id);
     if (isNaN(conversationId)) throw new ValidationError("Invalid conversation ID");
@@ -737,6 +743,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Step 1: Find the phone number record
     const listRes = await axios.get(`https://api.telnyx.com/v2/phone_numbers?filter[phone_number]=${encodeURIComponent(phoneNumber)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 15000,
     });
     const numbers = listRes.data?.data;
     if (!numbers || numbers.length === 0) {
@@ -749,7 +756,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const patchRes = await axios.patch(
       `https://api.telnyx.com/v2/phone_numbers/${numberId}`,
       { connection_id: targetConnectionId },
-      { headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" } }
+      { headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, timeout: 15000 }
     );
 
     res.json({
@@ -772,7 +779,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
 
     // 1. Get or create an outbound voice profile
-    const listRes = await axios.get("https://api.telnyx.com/v2/outbound_voice_profiles", { headers });
+    const listRes = await axios.get("https://api.telnyx.com/v2/outbound_voice_profiles", { headers, timeout: 15000 });
     const profiles = listRes.data?.data ?? [];
 
     let profileId: string;
@@ -840,7 +847,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           webhook_url_method: "POST",
           client_state: clientState,
         },
-        { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
+        { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` }, timeout: 20000 }
       );
     } catch (err: any) {
       const telnyxError = err?.response?.data;
