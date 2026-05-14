@@ -18,7 +18,7 @@ async function sendSMS(to: string, body: string) {
         to,
         text: body,
       },
-      { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
+      { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` }, timeout: 12000 }
     );
   } catch (e: any) {
     console.error("[Heartbeat] SMS error:", e?.message);
@@ -36,7 +36,7 @@ async function makeCall(to: string, webhookUrl: string, clientState?: string) {
       webhook_url_method: "POST",
       ...(clientState ? { client_state: clientState } : {}),
     },
-    { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } }
+    { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` }, timeout: 15000 }
   );
   return r.data?.data;
 }
