@@ -969,7 +969,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ${req.headers["user-agent"] ?? "unknown"}, ${superadminUser?.id ?? "unknown"},
               ${id}, 200, 0)
     `);
-    console.warn(\`[SECURITY] Superadmin impersonation: admin=\${superadminUser?.id} impersonated tenant=\${id} (owner=\${user.id})\`);
+    console.warn(`[SECURITY] Superadmin impersonation: admin=${superadminUser?.id} impersonated tenant=${id} (owner=${user.id})`);
 
     res.json({ token, tenantId: id });
   }));
