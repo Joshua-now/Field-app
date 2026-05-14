@@ -2,6 +2,9 @@ export function sanitizeString(input: string | null | undefined): string {
   if (!input) return "";
   return input
     .trim()
+    // Strip all HTML tags, not just angle brackets
+    .replace(/<[^>]*>/g, "")
+    // Collapse any remaining lone angle brackets
     .replace(/[<>]/g, "")
     .slice(0, 10000);
 }
@@ -20,7 +23,11 @@ export function sanitizeNotes(notes: string | null | undefined): string {
   if (!notes) return "";
   return notes
     .trim()
+    // Remove script and style blocks entirely
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+    // Strip all remaining HTML tags
+    .replace(/<[^>]*>/g, "")
     .slice(0, 50000);
 }
 

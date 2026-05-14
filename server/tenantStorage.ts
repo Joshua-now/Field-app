@@ -71,6 +71,7 @@ export class TenantScopedStorage implements ITenantStorage {
       .set(tech)
       .where(and(eq(technicians.id, id), eq(technicians.tenantId, this.tenantId)))
       .returning();
+    if (!updated) throw new Error(`Technician ${id} not found in tenant ${this.tenantId}`);
     return updated;
   }
 
@@ -142,6 +143,7 @@ export class TenantScopedStorage implements ITenantStorage {
       .set({ ...customer, ...sanitized, updatedAt: new Date() })
       .where(and(eq(customers.id, id), eq(customers.tenantId, this.tenantId)))
       .returning();
+    if (!updated) throw new Error(`Customer ${id} not found in tenant ${this.tenantId}`);
     return updated;
   }
 
@@ -207,6 +209,7 @@ export class TenantScopedStorage implements ITenantStorage {
       .set(updates)
       .where(and(eq(jobs.id, id), eq(jobs.tenantId, this.tenantId)))
       .returning();
+    if (!updated) throw new Error(`Job ${id} not found in tenant ${this.tenantId}`);
     return updated;
   }
 
@@ -299,6 +302,7 @@ export class TenantScopedStorage implements ITenantStorage {
       .set(updateData)
       .where(and(eq(jobChecklistItems.id, id), eq(jobChecklistItems.tenantId, this.tenantId)))
       .returning();
+    if (!updated) throw new Error(`Checklist item ${id} not found in tenant ${this.tenantId}`);
     return updated;
   }
 
