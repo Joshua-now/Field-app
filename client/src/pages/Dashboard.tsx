@@ -23,8 +23,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function Dashboard() {
-  const { data: jobs, isLoading: loadingJobs } = useJobs();
-  const { data: technicians, isLoading: loadingTechs } = useTechnicians();
+  const { data: jobs, isLoading: loadingJobs, isError: jobsError } = useJobs();
+  const { data: technicians, isLoading: loadingTechs, isError: techsError } = useTechnicians();
   const queryClient = useQueryClient();
   const [seeding, setSeeding] = useState(false);
   const [seedDone, setSeedDone] = useState(false);
@@ -51,6 +51,15 @@ export default function Dashboard() {
     } finally {
       setSeeding(false);
     }
+  }
+
+  if (jobsError || techsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center">
+        <p className="text-xl font-semibold text-destructive">Failed to load dashboard data</p>
+        <p className="text-muted-foreground text-sm">Check your connection and refresh the page.</p>
+      </div>
+    );
   }
 
   if (loadingJobs || loadingTechs) {

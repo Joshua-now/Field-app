@@ -44,7 +44,7 @@ export default function Jobs() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const { data: jobs, isLoading } = useJobs();
+  const { data: jobs, isLoading, isError } = useJobs();
   const { data: technicians } = useTechnicians();
   const { data: customers } = useCustomers();
   const createJob = useCreateJob();
@@ -70,8 +70,10 @@ export default function Jobs() {
       await createJob.mutateAsync(data);
       setIsDialogOpen(false);
       form.reset();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      // createJob.mutateAsync already shows a toast via the hook's onError handler,
+      // so no additional toast needed — but ensure dialog stays open for correction.
     }
   };
 
@@ -272,7 +274,12 @@ export default function Jobs() {
 
       {/* Job List */}
       <div className="grid gap-4">
-        {isLoading ? (
+        {isError ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+            <p className="text-lg font-medium text-destructive">Failed to load jobs</p>
+            <p className="text-sm text-muted-foreground">Check your connection and try refreshing the page.</p>
+          </div>
+        ) : isLoading ? (
           <div className="space-y-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <Card key={i} className="border-border/50">

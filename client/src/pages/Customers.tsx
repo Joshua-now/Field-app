@@ -17,7 +17,7 @@ import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "
 
 export default function Customers() {
   const [search, setSearch] = useState("");
-  const { data: customers, isLoading } = useCustomers(search);
+  const { data: customers, isLoading, isError } = useCustomers(search);
   const createCustomer = useCreateCustomer();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -36,9 +36,13 @@ export default function Customers() {
   });
 
   const onSubmit = async (data: any) => {
-    await createCustomer.mutateAsync(data);
-    setIsOpen(false);
-    form.reset();
+    try {
+      await createCustomer.mutateAsync(data);
+      setIsOpen(false);
+      form.reset();
+    } catch {
+      // createCustomer hook's onError already shows a toast — keep dialog open for correction
+    }
   };
 
   return (
@@ -173,7 +177,12 @@ export default function Customers() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {isLoading ? (
+        {isError ? (
+          <div className="col-span-full flex flex-col items-center justify-center py-16 gap-3 text-center">
+            <p className="text-lg font-medium text-destructive">Failed to load customers</p>
+            <p className="text-sm text-muted-foreground">Check your connection and try refreshing the page.</p>
+          </div>
+        ) : isLoading ? (
           Array.from({ length: 6 }).map((_, i) => (
             <Card key={i}>
               <CardContent className="p-6 space-y-4">

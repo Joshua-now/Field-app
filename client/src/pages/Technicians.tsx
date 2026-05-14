@@ -16,7 +16,7 @@ import { useState } from "react";
 const technicianFormSchema = insertTechnicianSchema.omit({ tenantId: true });
 
 export default function Technicians() {
-  const { data: technicians, isLoading } = useTechnicians();
+  const { data: technicians, isLoading, isError } = useTechnicians();
   const createTech = useCreateTechnician();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -37,8 +37,8 @@ export default function Technicians() {
       await createTech.mutateAsync(data);
       setIsOpen(false);
       form.reset();
-    } catch (e) {
-      console.error(e);
+    } catch {
+      // createTech hook's onError shows a toast — keep dialog open for correction
     }
   };
 
@@ -118,7 +118,12 @@ export default function Technicians() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {isLoading ? (
+        {isError ? (
+          <div className="col-span-full flex flex-col items-center justify-center py-16 gap-3 text-center">
+            <p className="text-lg font-medium text-destructive">Failed to load technicians</p>
+            <p className="text-sm text-muted-foreground">Check your connection and try refreshing the page.</p>
+          </div>
+        ) : isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <Card key={i}>
               <CardContent className="p-6">

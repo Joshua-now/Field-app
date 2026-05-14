@@ -43,7 +43,7 @@ export default function Schedule() {
     startOfWeek(new Date(), { weekStartsOn: 0 })
   );
 
-  const { data: jobs, isLoading } = useQuery<Job[]>({
+  const { data: jobs, isLoading, isError } = useQuery<Job[]>({
     queryKey: ["/api/jobs"],
   });
 
@@ -76,6 +76,15 @@ export default function Schedule() {
   const goToToday = () => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 0 }));
 
   const isToday = (date: Date) => isSameDay(date, new Date());
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center">
+        <p className="text-xl font-semibold text-destructive">Failed to load schedule</p>
+        <p className="text-muted-foreground text-sm">Check your connection and refresh the page.</p>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

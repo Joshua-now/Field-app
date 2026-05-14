@@ -6,7 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Plus, Bot, User, Loader2 } from "lucide-react";
+import { Send, Plus, Bot, User, Loader2, AlertCircle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -29,11 +30,13 @@ export default function Bob() {
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
     queryKey: ["/api/bob/conversations"],
     queryFn: async () => {
       const res = await fetch("/api/bob/conversations", { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) throw new Error(`Failed to load conversations: ${res.status}`);
       return res.json();
     },
   });
@@ -43,6 +46,7 @@ export default function Bob() {
     enabled: !!activeConvId,
     queryFn: async () => {
       const res = await fetch(`/api/bob/conversations/${activeConvId}/messages`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) throw new Error(`Failed to load messages: ${res.status}`);
       return res.json();
     },
   });
@@ -53,6 +57,7 @@ export default function Bob() {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
       });
+      if (!res.ok) throw new Error(`Failed to create conversation: ${res.status}`);
       return res.json() as Promise<Conversation>;
     },
     onSuccess: (conv) => {
@@ -68,11 +73,18 @@ export default function Bob() {
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message || `Error ${res.status}`);
+      }
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/bob/messages", activeConvId] });
       qc.invalidateQueries({ queryKey: ["/api/bob/conversations"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to send", description: err.message, variant: "destructive" });
     },
   });
 
