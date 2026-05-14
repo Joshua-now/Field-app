@@ -20,14 +20,31 @@ const TELNYX_API     = "https://api.telnyx.com/v2";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const VOICE_MODEL    = "openai/gpt-4o-mini";
 
+
+// ─── RETRY HELPER ─────────────────────────────────────────────────────────────
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 2, baseDelayMs = 300): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.response?.status;
+      if (status && status < 500 && status !== 429) throw err;
+      if (attempt < maxAttempts) await new Promise(r => setTimeout(r, baseDelayMs * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 // ─── TELNYX ACTIONS ───────────────────────────────────────────────────────────
 
 async function telnyxAction(callControlId: string, action: string, body: object = {}) {
-  await axios.post(
+  await withRetry(() => axios.post(
     `${TELNYX_API}/calls/${callControlId}/actions/${action}`,
     body,
     { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` }, timeout: 10000 }
-  );
+  ));
 }
 
 async function speak(callControlId: string, text: string) {
@@ -163,9 +180,24 @@ interface CallState {
   pendingTranscript: string;                               // accumulates transcript chunks
   transcriptTimer: ReturnType<typeof setTimeout> | null;  // debounce: process after pause
   silenceTimer: ReturnType<typeof setTimeout> | null;     // inactivity: prompt if silent
+  startedAt: number;                                       // epoch ms — for max-age pruning
 }
 
 const activeCalls = new Map<string, CallState>();
+
+// Prune stale call state every 5 minutes (guards against webhook drop-off leaving entries)
+const MAX_CALL_AGE_MS = 30 * 60 * 1000; // 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, state] of Array.from(activeCalls.entries())) {
+    if (now - state.startedAt > MAX_CALL_AGE_MS) {
+      if (state.transcriptTimer) clearTimeout(state.transcriptTimer);
+      if (state.silenceTimer)    clearTimeout(state.silenceTimer);
+      activeCalls.delete(id);
+      console.warn(`[Voice] Pruned stale call state for ${id.slice(0, 20)}...`);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // ─── BRIEFING TEXT ────────────────────────────────────────────────────────────
 
@@ -247,6 +279,7 @@ export async function handleVoiceWebhook(req: Request, res: Response) {
           pendingTranscript: "",
           transcriptTimer: null,
           silenceTimer: null,
+          startedAt: Date.now(),
         });
 
         // Start continuous transcription on contractor's audio track
