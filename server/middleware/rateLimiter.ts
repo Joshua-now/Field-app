@@ -10,7 +10,7 @@ const rateLimitStore = new Map<string, RateLimitEntry>();
 const CLEANUP_INTERVAL = 60000;
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of rateLimitStore.entries()) {
+  for (const [key, entry] of Array.from(rateLimitStore.entries())) {
     if (entry.resetTime < now) {
       rateLimitStore.delete(key);
     }
@@ -83,4 +83,16 @@ export const apiRateLimiter = createRateLimiter({
 export const strictRateLimiter = createRateLimiter({
   windowMs: 60000,
   maxRequests: 10
+});
+
+// Bob AI limiter — keyed by tenant+user to prevent a single tenant from
+// hammering the OpenRouter API. 20 AI requests per minute per user.
+export const bobRateLimiter = createRateLimiter({
+  windowMs: 60000,
+  maxRequests: 20,
+  keyGenerator: (req) => {
+    const user = (req as any).user;
+    if (user?.id && user?.tenantId) return `bob:${user.tenantId}:${user.id}`;
+    return req.ip || req.socket?.remoteAddress || "unknown";
+  },
 });
