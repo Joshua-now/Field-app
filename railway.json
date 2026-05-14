@@ -2,6 +2,6 @@
   "$schema": "https://railway.app/railway.schema.json",
   "deploy": {
     "buildCommand": "npm install && npm run build",
-    "startCommand": "node scripts/make-superadmin.mjs jbb09now@gmail.com && npm run start"
+    "startCommand": "node scripts/make-superadmin.mjs jbb09now@gmail.com && node scripts/make-superadmin.mjs jbbrown09@gmail.com && npm run start"
   }
 }
