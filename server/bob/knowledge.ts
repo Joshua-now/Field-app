@@ -16,6 +16,26 @@ const CHUNK_SIZE         = 800;   // characters
 const CHUNK_OVERLAP      = 100;   // characters
 const TOP_K              = 5;     // chunks to retrieve per query
 
+
+// ─── RETRY HELPER ─────────────────────────────────────────────────────────────
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelayMs = 400): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.response?.status;
+      if (status && status < 500 && status !== 429) throw err;
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ─── CHUNKING ─────────────────────────────────────────────────────────────────
 
 function chunkText(text: string): string[] {
@@ -48,7 +68,7 @@ async function getEmbedding(text: string): Promise<number[] | null> {
     return null;
   }
   try {
-    const res = await axios.post(
+    const res = await withRetry(() => axios.post(
       "https://openrouter.ai/api/v1/embeddings",
       { model: EMBEDDING_MODEL, input: text },
       {
@@ -58,7 +78,7 @@ async function getEmbedding(text: string): Promise<number[] | null> {
         },
         timeout: 15000,
       }
-    );
+    ));
     return res.data?.data?.[0]?.embedding ?? null;
   } catch (e: any) {
     console.error("[Knowledge] Embedding error:", e?.message);
