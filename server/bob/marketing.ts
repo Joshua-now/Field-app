@@ -104,6 +104,12 @@ export async function getColdLeads(
 
 // ─── LEAD INTAKE (called from API route) ─────────────────────────────────────
 
+// Basic field length caps to prevent oversized data reaching the DB
+function truncate(s: string | undefined, max: number): string | undefined {
+  if (!s) return s;
+  return String(s).trim().slice(0, max);
+}
+
 export async function ingestLead(
   tenantId: string,
   data: {
@@ -124,6 +130,30 @@ export async function ingestLead(
     rawPayload?: any;
   }
 ): Promise<number> {
+  // Sanitize string fields before inserting
+  const safeData = {
+    ...data,
+    firstName:       truncate(data.firstName, 100),
+    lastName:        truncate(data.lastName, 100),
+    phone:           truncate(data.phone, 30),
+    email:           truncate(data.email, 255),
+    serviceInterest: truncate(data.serviceInterest, 200),
+    sourcePlatform:  truncate(data.sourcePlatform, 50),
+    campaignId:      truncate(data.campaignId, 100),
+    campaignName:    truncate(data.campaignName, 200),
+    utmSource:       truncate(data.utmSource, 100),
+    utmMedium:       truncate(data.utmMedium, 100),
+    utmCampaign:     truncate(data.utmCampaign, 100),
+    gclid:           truncate(data.gclid, 100),
+    fbclid:          truncate(data.fbclid, 100),
+  };
+  data = safeData;
+
+  // Require at least phone or email — reject entirely anonymous leads
+  if (!data.phone && !data.email) {
+    throw new Error("Lead must include at least a phone number or email address.");
+  }
+
   const [lead] = await db
     .insert(adLeads)
     .values({
