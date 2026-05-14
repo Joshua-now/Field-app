@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
-    "start": "npm run db:push && NODE_ENV=production node dist/index.cjs",
+    "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "db:seed": "tsx server/scripts/seed-demo.ts"
+    "db:seed": "tsx server/scripts/seed-demo.ts",
+    "migrate": "drizzle-kit push"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

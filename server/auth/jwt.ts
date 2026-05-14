@@ -2,17 +2,30 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type { RequestHandler } from "express";
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+// ─── JWT SECRET ───────────────────────────────────────────────────────────────
+// Must be set as an environment variable — no fallback intentionally.
+// If missing, crash on first token operation so it's caught immediately.
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "JWT_SECRET environment variable is not set. " +
+      "Generate a random 32+ character string and add it to your Railway environment variables."
+    );
+  }
+  return secret;
+}
+
 const JWT_EXPIRES_IN = "7d";
 
 // ─── TOKEN HELPERS ────────────────────────────────────────────────────────────
 
 export function signToken(payload: { id: string; email: string; tenantId: string; role: string }) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRES_IN });
 }
 
 export function verifyToken(token: string): any {
-  return jwt.verify(token, JWT_SECRET);
+  return jwt.verify(token, getJwtSecret());
 }
 
 export function hashPassword(password: string): Promise<string> {

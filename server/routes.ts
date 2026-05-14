@@ -7,11 +7,11 @@ import { authRouter } from "./auth/routes";
 import { validateStatusTransition, JobStatus } from "@shared/jobStateMachine";
 import { errorHandler, asyncHandler, AppError, NotFoundError, ValidationError } from "./middleware/errorHandler";
 import { apiRateLimiter, strictRateLimiter } from "./middleware/rateLimiter";
-import { tenantContextMiddleware } from "./middleware/tenantContext";
+import { tenantContextMiddleware, getTenantId as getTenantIdFromContext } from "./middleware/tenantContext";
 import { db, getHealthStatus } from "./db";
 import { securityHeaders, requestIdMiddleware } from "./middleware/security";
 import { auditLogMiddleware } from "./middleware/auditLog";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { bobConversations, bobMessages } from "@shared/schema";
 import {
   insertTechnicianSchema,
@@ -28,10 +28,10 @@ import multer from "multer";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
 
-const DEFAULT_TENANT_ID = "default-tenant";
-
 function getTenantId(req: Request): string {
-  return req.tenantId || DEFAULT_TENANT_ID;
+  // Delegates to tenantContext version which throws if tenant is missing —
+  // no silent fallback to a default bucket
+  return getTenantIdFromContext(req);
 }
 
 function getTenantStorage(req: Request) {
@@ -69,7 +69,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/voice/webhook", handleVoiceWebhook);
 
   // ── OPENROUTER DIAGNOSTIC (auth-protected — returns API key prefix, never expose publicly) ──
-  app.get("/api/bob/ping", isAuthenticated, asyncHandler(async (_req, res) => {
+  app.get("/api/bob/ping", isAuthenticated, requireRole("owner", "admin"), asyncHandler(async (_req, res) => {
     const rawKey = process.env.OPENROUTER_API_KEY || "";
     const apiKey = rawKey.trim().replace(/^Bearer\s+/i, "").replace(/^["'`]|["'`]$/g, "").trim();
     const keyInfo = {
@@ -135,8 +135,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/technicians/:id", asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid technician ID");
-    const tech = await getTenantStorage(req).updateTechnician(id, req.body);
+
+    // Strip fields that must never be set directly
+    const { passwordHash, tenantId, id: _id, password, ...safeBody } = req.body;
+
+    // If a new password was provided, hash it properly
+    let updates: any = safeBody;
+    if (password && typeof password === "string" && password.length >= 6) {
+      updates.passwordHash = await bcrypt.hash(password, 10);
+    }
+
+    const tech = await getTenantStorage(req).updateTechnician(id, updates);
     res.json(sanitizeTechnician(tech));
+  }));
+
+  app.delete("/api/technicians/:id", requireRole("owner", "admin"), asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new ValidationError("Invalid technician ID");
+    // Soft-delete: mark inactive rather than destroying historical job records
+    const tech = await getTenantStorage(req).updateTechnician(id, { isActive: false });
+    if (!tech) throw new NotFoundError("Technician");
+    res.status(204).send();
   }));
 
   app.patch("/api/technicians/:id/location", asyncHandler(async (req, res) => {
@@ -177,7 +196,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/customers/:id", asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid customer ID");
-    const customer = await getTenantStorage(req).updateCustomer(id, req.body);
+    // Strip fields that must not be overridden
+    const { tenantId, id: _id, ...safeBody } = req.body;
+    const data = validateBody(insertCustomerSchema.partial().omit({ tenantId: true }), safeBody);
+    const customer = await getTenantStorage(req).updateCustomer(id, data as any);
     res.json(customer);
   }));
 
@@ -221,7 +243,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/jobs/:id", asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) throw new ValidationError("Invalid job ID");
-    const job = await getTenantStorage(req).updateJob(id, req.body);
+    const { tenantId, id: _id, jobNumber, ...safeBody } = req.body;
+    const data = validateBody(insertJobSchema.partial().omit({ tenantId: true }), safeBody);
+    const job = await getTenantStorage(req).updateJob(id, data as any);
     res.json(job);
   }));
 
@@ -362,7 +386,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(msgs);
   }));
 
-  app.post("/api/bob/conversations/:id/messages", isAuthenticated, asyncHandler(async (req, res) => {
+  app.post("/api/bob/conversations/:id/messages", asyncHandler(async (req, res) => {
     const tenantId = getTenantId(req);
     const conversationId = Number(req.params.id);
     if (isNaN(conversationId)) throw new ValidationError("Invalid conversation ID");
@@ -420,13 +444,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Public webhook — receives leads from Speed-to-Lead, web forms, Google/Meta
   // Auth: pre-shared secret in X-Webhook-Secret header + tenant ID
   app.post("/api/leads/inbound", asyncHandler(async (req, res) => {
-    // Verify pre-shared webhook secret — prevents random internet traffic from injecting leads
+    // Verify pre-shared webhook secret — required. Set LEADS_WEBHOOK_SECRET in env.
     const webhookSecret = process.env.LEADS_WEBHOOK_SECRET;
-    if (webhookSecret) {
-      const provided = req.headers["x-webhook-secret"] as string;
-      if (!provided || provided !== webhookSecret) {
-        throw new AppError(401, "Invalid or missing webhook secret");
-      }
+    if (!webhookSecret) {
+      throw new AppError(500, "LEADS_WEBHOOK_SECRET is not configured on this server");
+    }
+    const provided = req.headers["x-webhook-secret"] as string;
+    if (!provided || provided !== webhookSecret) {
+      throw new AppError(401, "Invalid or missing webhook secret");
     }
 
     // Identify tenant by API key or slug passed in body
@@ -935,6 +960,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!user) return res.status(404).json({ message: "No owner found" });
     const { signToken } = await import("./auth/jwt");
     const token = signToken({ id: user.id, email: user.email, tenantId: user.tenant_id, role: user.role });
+
+    // Persist impersonation event — always log this action durably
+    const superadminUser = (req as any).user;
+    await db.execute(sql`
+      INSERT INTO audit_logs (method, path, ip, user_agent, user_id, tenant_id, status_code, duration_ms)
+      VALUES ('IMPERSONATE', ${"/superadmin/impersonate/" + id}, ${req.ip ?? "unknown"},
+              ${req.headers["user-agent"] ?? "unknown"}, ${superadminUser?.id ?? "unknown"},
+              ${id}, 200, 0)
+    `);
+    console.warn(\`[SECURITY] Superadmin impersonation: admin=\${superadminUser?.id} impersonated tenant=\${id} (owner=\${user.id})\`);
+
     res.json({ token, tenantId: id });
   }));
   // ── ERROR HANDLER (must be last) ──────────────────────────────────────────

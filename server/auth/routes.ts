@@ -1,11 +1,16 @@
 import { Router } from "express";
 import { db } from "../db";
-import { users, tenants } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { users, tenants, technicians } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import { signToken, hashPassword, comparePassword, isAuthenticated } from "./jwt";
+import { createRateLimiter } from "../middleware/rateLimiter";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 
 export const authRouter = Router();
+
+// Strict limiter for auth endpoints — 10 attempts per minute per IP
+const authLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10 });
 
 // ─── REGISTER (creates tenant + owner user) ───────────────────────────────────
 const registerSchema = z.object({
@@ -17,17 +22,15 @@ const registerSchema = z.object({
   phone: z.string().optional(),
 });
 
-authRouter.post("/register", async (req, res) => {
+authRouter.post("/register", authLimiter, async (req, res) => {
   try {
     const body = registerSchema.parse(req.body);
 
-    // Check email not already taken
     const [existing] = await db.select().from(users).where(eq(users.email, body.email));
     if (existing) {
       return res.status(409).json({ message: "Email already registered" });
     }
 
-    // Create tenant
     const slug = body.companyName
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "-")
@@ -43,7 +46,6 @@ authRouter.post("/register", async (req, res) => {
       status: "active",
     }).returning();
 
-    // Create owner user
     const passwordHash = await hashPassword(body.password);
     const [user] = await db.insert(users).values({
       tenantId: tenant.id,
@@ -79,7 +81,7 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
 
@@ -107,6 +109,49 @@ authRouter.post("/login", async (req, res) => {
       return res.status(400).json({ message: err.errors[0]?.message });
     }
     console.error("[Auth] Login error:", err.message);
+    res.status(500).json({ message: "Login failed" });
+  }
+});
+
+// ─── TECHNICIAN LOGIN ─────────────────────────────────────────────────────────
+const techLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  tenantId: z.string().min(1),
+});
+
+authRouter.post("/technician-login", authLimiter, async (req, res) => {
+  try {
+    const { email, password, tenantId } = techLoginSchema.parse(req.body);
+
+    const [tech] = await db
+      .select()
+      .from(technicians)
+      .where(and(eq(technicians.email, email), eq(technicians.tenantId, tenantId)));
+
+    if (!tech || !tech.isActive) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const valid = await bcrypt.compare(password, tech.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = signToken({
+      id: String(tech.id),
+      email: tech.email,
+      tenantId: tech.tenantId,
+      role: "technician",
+    });
+
+    const { passwordHash: _, ...safeTech } = tech;
+    res.json({ token, technician: safeTech });
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ message: err.errors[0]?.message });
+    }
+    console.error("[Auth] Technician login error:", err.message);
     res.status(500).json({ message: "Login failed" });
   }
 });

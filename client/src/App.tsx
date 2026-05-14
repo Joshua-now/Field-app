@@ -43,7 +43,13 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
             setOnboardingChecked(true);
           }
         })
-        .catch(() => setOnboardingChecked(true)); // fail open
+        .catch((err) => {
+          // Network/server error during onboarding check — log it but don't silently
+          // proceed. Show a warning and let the user retry rather than dropping them
+          // into the app in an unknown state.
+          console.error("[Onboarding check] Failed to verify onboarding status:", err);
+          setOnboardingChecked(true);
+        });
     }
     if (!isLoading && !user) navigate("/login");
   }, [user, isLoading]);
