@@ -33,7 +33,7 @@ export class GhlAdapter implements CrmAdapter {
 
       const raw: any[] = resp.data?.contacts || [];
 
-      const contacts: CrmContact[] = await Promise.all(
+      const contacts: CrmContact[] = (await Promise.allSettled(
         raw.map(async (c: any) => {
           // Fetch notes for each contact
           let notes: string[] = [];
@@ -78,7 +78,7 @@ export class GhlAdapter implements CrmAdapter {
             raw: c,
           };
         })
-      );
+      )).filter(r => r.status === "fulfilled").map(r => (r as PromiseFulfilledResult<CrmContact>).value);
 
       return { ok: true, contacts, source: "ghl" };
     } catch (err: any) {
