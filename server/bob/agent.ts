@@ -769,7 +769,8 @@ export async function runBobAgent(
   tenantId: string,
   conversationId: number,
   userMessage: string,
-  callerRole = "staff"   // Role of the authenticated user making this request
+  callerRole = "staff",   // Role of the authenticated user making this request
+  callerId?: string        // User ID of the authenticated caller (for context)
 ): Promise<string> {
   console.log(`[Bob] Agent called — tenant: ${tenantId}, conv: ${conversationId}, role: ${callerRole}`);
 
@@ -786,7 +787,14 @@ export async function runBobAgent(
   let user: any = null;
   try {
     [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-    [user]   = await db.select().from(users).where(eq(users.tenantId, tenantId)).limit(1);
+    if (callerId) {
+      // Load the authenticated caller specifically
+      [user] = await db.select().from(users).where(and(eq(users.id, callerId), eq(users.tenantId, tenantId))).limit(1);
+    }
+    // Fallback: first owner for the tenant (for technician callers who exist in `technicians` table, not `users`)
+    if (!user) {
+      [user] = await db.select().from(users).where(and(eq(users.tenantId, tenantId), eq(users.role, "owner" as any))).limit(1);
+    }
   } catch (e: any) {
     console.error("[Bob] DB lookup error:", e.message);
   }

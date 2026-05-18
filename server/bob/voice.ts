@@ -11,6 +11,7 @@
  */
 
 import type { Request, Response } from "express";
+import { createVerify } from "crypto";
 import axios from "axios";
 import { db } from "../db";
 import { jobs, customers, technicians } from "@shared/schema";
@@ -234,7 +235,56 @@ async function buildBriefingText(tenantId: string, type: "morning" | "evening", 
 
 // ─── WEBHOOK HANDLER ──────────────────────────────────────────────────────────
 
+// ─── TELNYX WEBHOOK SIGNATURE VERIFICATION ───────────────────────────────────
+// Telnyx signs webhooks with Ed25519. The public key is available in the
+// Telnyx portal under "API Keys > Webhook Signing". Set TELNYX_PUBLIC_KEY
+// in Railway env vars. If not set we log a warning but still process the event
+// (to avoid breaking existing deployments without the key set).
+
+
+function verifyTelnyxSignature(req: Request): boolean {
+  const publicKey = process.env.TELNYX_PUBLIC_KEY;
+  if (!publicKey) {
+    // Log once per minute max — avoid log spam
+    const now = Date.now();
+    if (!verifyTelnyxSignature._lastWarn || now - verifyTelnyxSignature._lastWarn > 60000) {
+      console.warn("[Voice] TELNYX_PUBLIC_KEY not set — webhook signatures NOT verified. Set this in Railway env vars.");
+      verifyTelnyxSignature._lastWarn = now;
+    }
+    return true; // Permissive fallback — set TELNYX_PUBLIC_KEY to harden
+  }
+
+  const signature  = req.headers["telnyx-signature-ed25519"] as string;
+  const timestamp  = req.headers["telnyx-timestamp"] as string;
+  if (!signature || !timestamp) return false;
+
+  // Replay protection: reject events older than 5 minutes
+  const tsMs = Number(timestamp) * 1000;
+  if (Math.abs(Date.now() - tsMs) > 300_000) return false;
+
+  try {
+    const body = JSON.stringify(req.body);
+    const message = `${timestamp}|${body}`;
+    const verify  = createVerify("ed25519");
+    verify.update(message);
+    // Telnyx provides the key as a base64-encoded DER-formatted Ed25519 public key
+    const keyBuf = Buffer.from(publicKey, "base64");
+    const sigBuf = Buffer.from(signature, "base64");
+    return verify.verify({ key: keyBuf, format: "der", type: "spki" }, sigBuf);
+  } catch (e: any) {
+    console.error("[Voice] Signature verification error:", e.message);
+    return false;
+  }
+}
+(verifyTelnyxSignature as any)._lastWarn = 0;
+
 export async function handleVoiceWebhook(req: Request, res: Response) {
+  // Verify Telnyx signature before processing
+  if (!verifyTelnyxSignature(req)) {
+    console.warn("[Voice] Rejected webhook — invalid signature from", req.ip);
+    return res.status(401).json({ error: "Invalid webhook signature" });
+  }
+
   res.status(200).json({ received: true }); // Fast 200 to Telnyx
 
   const event         = req.body;

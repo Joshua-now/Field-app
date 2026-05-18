@@ -90,6 +90,12 @@ authRouter.post("/login", authLimiter, async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // Block login for suspended/inactive tenants
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, user.tenantId!));
+    if (!tenant || tenant.status === "suspended" || tenant.status === "cancelled") {
+      return res.status(403).json({ message: "Account suspended. Contact support." });
+    }
+
     const valid = await comparePassword(password, user.passwordHash);
     if (!valid) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -103,7 +109,7 @@ authRouter.post("/login", authLimiter, async (req, res) => {
     });
 
     const { passwordHash: _, ...safeUser } = user;
-    res.json({ token, user: safeUser });
+    res.json({ token, user: safeUser, tenant: { companyName: tenant.companyName, planTier: tenant.planTier } });
   } catch (err: any) {
     if (err.name === "ZodError") {
       return res.status(400).json({ message: err.errors[0]?.message });

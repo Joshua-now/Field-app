@@ -711,14 +711,15 @@ TONE: Professional, warm, and efficient. Match the caller's urgency.`;
     });
     if (!conv) throw new NotFoundError("Conversation");
 
-    // Pass the authenticated user's role so Bob enforces tool access correctly
+    // Pass the authenticated user's role and ID so Bob enforces tool access correctly
     const callerRole = (req as any).user?.role ?? "staff";
+    const callerId   = (req as any).user?.id;
 
     await db.insert(bobMessages).values({ tenantId, conversationId, role: "user", content });
 
     let reply: string;
     try {
-      reply = await runBobAgent(tenantId, conversationId, content, callerRole);
+      reply = await runBobAgent(tenantId, conversationId, content, callerRole, callerId);
     } catch (err: any) {
       console.error("[Bob] Agent error:", err?.message);
       reply = "I hit an error on my end — check the server logs.";
