@@ -10,6 +10,7 @@ import { Loader2 } from "lucide-react";
 
 import Login from "@/pages/Login";
 import Onboarding from "@/pages/Onboarding";
+import OnboardBot from "@/pages/OnboardBot";
 import Dashboard from "@/pages/Dashboard";
 import Schedule from "@/pages/Schedule";
 import Jobs from "@/pages/Jobs";
@@ -71,6 +72,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/onboarding" component={Onboarding} />
+      <Route path="/onboard/:token" component={OnboardBot} />
       <Route path="/">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/schedule">{() => <ProtectedRoute component={Schedule} />}</Route>
       <Route path="/jobs">{() => <ProtectedRoute component={Jobs} />}</Route>

@@ -22,6 +22,7 @@ import {
 } from "@shared/schema";
 import { runBobAgent } from "./bob/agent";
 import { handleVoiceWebhook } from "./bob/voice";
+import { sendOnboardingEmail } from "./email";
 import bcrypt from "bcryptjs";
 import axios from "axios";
 import multer from "multer";
@@ -95,6 +96,305 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
   app.use("/api/auth", authRouter);
+
+  // ── STRIPE WEBHOOK (public — raw body required) ───────────────────────────
+  app.post("/api/webhooks/stripe",
+    // raw body needed for signature verification
+    (req: Request, res: Response, next: NextFunction) => {
+      let data = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk: string) => { data += chunk; });
+      req.on("end", () => { (req as any).rawBody = data; next(); });
+    },
+    asyncHandler(async (req, res) => {
+      const sig = req.headers["stripe-signature"] as string;
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey) { res.json({ received: true }); return; }
+
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(stripeKey);
+
+      let event: any;
+      try {
+        event = webhookSecret
+          ? stripe.webhooks.constructEvent((req as any).rawBody, sig, webhookSecret)
+          : JSON.parse((req as any).rawBody);
+      } catch (err: any) {
+        console.error("[Stripe] Webhook signature failed:", err.message);
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as any;
+        const customerEmail = session.customer_details?.email || session.customer_email;
+        const companyName   = session.customer_details?.name || "New Customer";
+        const planTier      = session.metadata?.plan || "starter";
+
+        if (!customerEmail) { res.json({ received: true }); return; }
+
+        try {
+          const { tenants } = await import("@shared/models/auth");
+          const { onboardingTokens } = await import("@shared/schema");
+          const crypto = await import("crypto");
+
+          // Create slug from email
+          const slug = customerEmail.split("@")[0]
+            .replace(/[^a-z0-9]/gi, "-").toLowerCase()
+            .slice(0, 30) + "-" + Date.now().toString(36);
+
+          // Hash a temp password — they'll reset via onboarding
+          const tempPw = crypto.randomBytes(8).toString("hex");
+          const bcrypt = (await import("bcryptjs")).default;
+          const passwordHash = await bcrypt.hash(tempPw, 10);
+
+          // Insert tenant + owner user
+          const [tenant] = await db.insert(tenants).values({
+            companyName,
+            slug,
+            email: customerEmail,
+            planTier,
+            status: "active",
+          } as any).returning();
+
+          const { users } = await import("@shared/models/auth");
+          await db.insert(users).values({
+            tenantId: tenant.id,
+            email: customerEmail,
+            passwordHash,
+            firstName: companyName.split(" ")[0],
+            role: "owner",
+          } as any);
+
+          // Create onboarding token (expires in 7 days)
+          const token = crypto.randomUUID();
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          await db.insert(onboardingTokens).values({ token, tenantId: tenant.id, expiresAt });
+
+          // Build onboarding URL
+          const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+          const onboardUrl = `${baseUrl}/onboard/${token}`;
+
+          // Send welcome email (configure SMTP via env vars)
+          await sendOnboardingEmail(customerEmail, companyName, onboardUrl);
+
+          console.log(`[Stripe] New tenant created: ${tenant.id} | token: ${token} | url: ${onboardUrl}`);
+        } catch (err: any) {
+          console.error("[Stripe] Failed to create tenant from checkout:", err.message);
+        }
+      }
+
+      res.json({ received: true });
+    })
+  );
+
+  // ── PUBLIC ONBOARDING BOT API (token-authenticated, no JWT needed) ────────
+
+  // Validate token + return tenant context
+  app.get("/api/onboard/:token", asyncHandler(async (req, res) => {
+    const { onboardingTokens } = await import("@shared/schema");
+    const { tenants } = await import("@shared/models/auth");
+    const [row] = await db.select().from(onboardingTokens)
+      .where(eq(onboardingTokens.token, req.params.token));
+    if (!row) return res.status(404).json({ error: "Invalid or expired link" });
+    if (row.used) return res.status(410).json({ error: "This setup link has already been used. Log in to access your dashboard." });
+    if (new Date() > row.expiresAt) return res.status(410).json({ error: "This link has expired. Please contact support." });
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, row.tenantId));
+    if (!tenant) return res.status(404).json({ error: "Account not found" });
+    res.json({ ok: true, companyName: tenant.companyName, email: tenant.email, tenantId: tenant.id });
+  }));
+
+  // Scrape website — public, token-gated
+  app.post("/api/onboard/:token/scrape", asyncHandler(async (req, res) => {
+    const { onboardingTokens } = await import("@shared/schema");
+    const [row] = await db.select().from(onboardingTokens)
+      .where(eq(onboardingTokens.token, req.params.token));
+    if (!row || row.used || new Date() > row.expiresAt)
+      return res.status(403).json({ error: "Invalid link" });
+
+    const { url } = req.body as { url: string };
+    if (!url) return res.status(400).json({ error: "url required" });
+
+    let rawUrl = url.trim();
+    if (!/^https?:\/\//i.test(rawUrl)) rawUrl = `https://${rawUrl}`;
+
+    let html = "";
+    try {
+      const resp = await axios.get(rawUrl, {
+        timeout: 8000,
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; FluidBot/1.0)" },
+        maxRedirects: 5,
+      });
+      html = String(resp.data ?? "");
+    } catch {
+      return res.json({ ok: false, error: "Could not fetch website — check the URL." });
+    }
+
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .slice(0, 8000);
+
+    const found: Record<string, any> = {};
+
+    // Company name
+    const ogSite  = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i);
+    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const h1Tag   = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    const rawName = ogSite?.[1] || titleTag?.[1]?.split(/[|\-–]/)[0]?.trim() || h1Tag?.[1]?.trim();
+    if (rawName) found.companyName = rawName.trim();
+
+    // Phone
+    const phones = text.match(/\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g) ?? [];
+    if (phones.length) found.phone = phones[0];
+
+    // Trade
+    const TRADES: Record<string, string[]> = {
+      "HVAC":                ["hvac","heating","cooling","air conditioning","furnace","ac repair"],
+      "Plumbing":            ["plumbing","plumber","drain","pipe","water heater"],
+      "Electrical":          ["electrical","electrician","wiring","panel"],
+      "Roofing":             ["roofing","roofer","roof repair","shingles"],
+      "Landscaping":         ["landscaping","lawn","sprinkler","irrigation"],
+      "Pest Control":        ["pest control","exterminator","termite"],
+      "Pool Service":        ["pool service","pool cleaning","pool repair"],
+      "Painting":            ["painting","painter","interior paint","exterior paint"],
+      "Cleaning":            ["cleaning","maid","housekeeping","janitorial"],
+      "General Contracting": ["contractor","remodeling","renovation","construction"],
+    };
+    const lc = text.toLowerCase();
+    const trades = Object.entries(TRADES)
+      .filter(([, kws]) => kws.some(kw => lc.includes(kw)))
+      .map(([t]) => t)
+      .slice(0, 3);
+    if (trades.length) found.serviceTypes = trades;
+
+    // Services list
+    const svcSection = html.match(/service[^<]*<\/h[1-4][^>]*>([\s\S]{0,2000})/i)?.[1] ?? "";
+    const liItems = [...svcSection.matchAll(/<li[^>]*>([^<]{5,80})<\/li>/gi)]
+      .map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(Boolean).slice(0,10);
+    if (liItems.length) found.services = liItems;
+
+    // Pricing
+    const prices = text.match(/\$[\d,]+(?:\.\d{2})?(?:\s*[-–]\s*\$[\d,]+(?:\.\d{2})?)?/g) ?? [];
+    if (prices.length) found.pricing = prices.slice(0, 5).join(", ");
+
+    // FAQs
+    const faqs = text.match(/[A-Z][^.?!]{20,120}\?/g) ?? [];
+    if (faqs.length) found.faqs = faqs.slice(0, 6);
+
+    // Hours
+    const hoursMatch = text.match(/(?:hours|open)[^.]{0,80}(?:mon|tue|wed|thu|fri|sat|sun|am|pm)[^.]{0,60}/i);
+    if (hoursMatch) found.hours = hoursMatch[0].trim();
+
+    // Location
+    const addrMatch = text.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)?),\s*([A-Z]{2})\s+\d{5}/);
+    if (addrMatch) { found.city = addrMatch[1]; found.state = addrMatch[2]; }
+
+    res.json({ ok: true, found });
+  }));
+
+  // Complete onboarding — provision Telnyx assistant + mark done
+  app.post("/api/onboard/:token/complete", asyncHandler(async (req, res) => {
+    const { onboardingTokens } = await import("@shared/schema");
+    const { tenants } = await import("@shared/models/auth");
+
+    const [row] = await db.select().from(onboardingTokens)
+      .where(eq(onboardingTokens.token, req.params.token));
+    if (!row || row.used || new Date() > row.expiresAt)
+      return res.status(403).json({ error: "Invalid or already used link" });
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, row.tenantId));
+    if (!tenant) return res.status(404).json({ error: "Account not found" });
+
+    const {
+      websiteUrl, companyName: bodyCompany, phone: bodyPhone,
+      serviceTypes, services, pricing, faqs, hours, city, state,
+      aiName, aiGreeting,
+    } = req.body as Record<string, any>;
+
+    const finalCompany  = bodyCompany  || tenant.companyName || "our company";
+    const finalPhone    = bodyPhone    || tenant.phone || "";
+    const botName       = aiName       || "Alex";
+    const finalCity     = city  || (tenant.addressCity  ?? "");
+    const finalState    = state || (tenant.addressState ?? "");
+    const serviceList   = Array.isArray(services)     ? services.join(", ")
+                        : Array.isArray(serviceTypes)  ? serviceTypes.join(", ")
+                        : "home services";
+
+    const pricingNote   = pricing ? `\n\nPRICING CONTEXT:\n${pricing}` : "";
+    const faqBlock      = Array.isArray(faqs) && faqs.length
+      ? `\n\nFREQUENTLY ASKED QUESTIONS:\n${(faqs as string[]).map((q,i) => `${i+1}. ${q}`).join("\n")}` : "";
+    const hoursNote     = hours    ? `\n\nBUSINESS HOURS: ${hours}` : "";
+    const locationNote  = finalCity ? `\n\nSERVICE AREA: ${finalCity}${finalState ? `, ${finalState}` : ""}` : "";
+
+    const systemPrompt = `You are ${botName}, the AI receptionist for ${finalCompany}. You answer inbound calls from customers who need ${serviceList}.
+
+YOUR JOB:
+1. Greet the caller warmly and ask how you can help.
+2. Understand their issue — ask clarifying questions one at a time.
+3. If they need service, collect: their name, address, best callback number, and description of the issue.
+4. If they ask about pricing, give the best info you have — be honest if you need to confirm with the team.
+5. Offer to schedule a service call or have someone call them back.
+6. Always end positively — confirm next steps.
+
+COMPANY INFO:
+Company: ${finalCompany}${finalPhone ? `\nPhone: ${finalPhone}` : ""}${locationNote}${hoursNote}
+
+SERVICES: ${serviceList}${pricingNote}${faqBlock}
+
+RULES:
+- Never invent prices you don't have — say "let me have someone confirm that."
+- If it's an emergency (no heat, burst pipe, no power), prioritize same-day or emergency service.
+- Keep responses short — this is a phone call.
+- If you can't help, always offer to take a message and have someone call back.
+- If asked whether you're AI, say "I'm ${botName}, the virtual assistant for ${finalCompany}."
+
+TONE: Professional, warm, and efficient. Match the caller's urgency.`;
+
+    const TELNYX_API_KEY = process.env.TELNYX_API_KEY || "KEY019D4888EF9B3207CAA11BE5105E2EE8_SETj4jrBqqJo8hd2kH1ezG";
+    let telnyxAssistantId: string | null = null;
+
+    try {
+      const createRes = await axios.post(
+        "https://api.telnyx.com/v2/ai/assistants",
+        {
+          name: `${finalCompany} — Inbound`,
+          system_prompt: systemPrompt,
+          voice: "Telnyx.Savannah",
+          language: "en",
+          greeting: aiGreeting || `Thanks for calling ${finalCompany}, this is ${botName}. How can I help you today?`,
+        },
+        { headers: { Authorization: `Bearer ${TELNYX_API_KEY}`, "Content-Type": "application/json" }, timeout: 15000 }
+      );
+      telnyxAssistantId = createRes.data?.data?.id ?? createRes.data?.id ?? null;
+    } catch (err: any) {
+      console.error("[Onboard] Telnyx provision failed:", err?.response?.data ?? err.message);
+    }
+
+    // Save to tenant
+    const update: Record<string, any> = {
+      companyName: finalCompany,
+      onboardingCompleted: true,
+      bobEnabled: true,
+      updatedAt: new Date(),
+    };
+    if (websiteUrl)        update.websiteUrl        = websiteUrl;
+    if (telnyxAssistantId) update.telnyxAssistantId = telnyxAssistantId;
+    if (bodyPhone)         update.phone             = bodyPhone;
+    if (finalCity)         update.addressCity       = finalCity;
+    if (finalState)        update.addressState      = finalState;
+
+    await db.update(tenants).set(update as any).where(eq(tenants.id, row.tenantId));
+
+    // Mark token used
+    await db.update(onboardingTokens)
+      .set({ used: true } as any)
+      .where(eq(onboardingTokens.token, req.params.token));
+
+    res.json({ ok: true, telnyxAssistantId, assistantProvisioned: !!telnyxAssistantId });
+  }));
 
   // ── PROTECTED — wire auth + tenant context ───────────────────────────────
   app.use("/api", apiRateLimiter, isAuthenticated, tenantContextMiddleware);
@@ -902,15 +1202,211 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(result);
   }));
 
-  // Mark onboarding complete
+  // ── ONBOARDING: Scrape website ────────────────────────────────────────────
+  app.post("/api/tenant/onboarding/scrape", isAuthenticated, asyncHandler(async (req, res) => {
+    const { url } = req.body as { url: string };
+    if (!url || typeof url !== "string") throw new ValidationError("url is required");
+
+    let rawUrl = url.trim();
+    if (!/^https?:\/\//i.test(rawUrl)) rawUrl = `https://${rawUrl}`;
+
+    let html = "";
+    try {
+      const resp = await axios.get(rawUrl, {
+        timeout: 8000,
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; FluidBot/1.0)" },
+        maxRedirects: 5,
+      });
+      html = String(resp.data ?? "");
+    } catch {
+      return res.json({ ok: false, error: "Could not fetch website — check the URL and try again." });
+    }
+
+    // Strip tags for text extraction
+    const text = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+                     .replace(/<style[\s\S]*?<\/style>/gi, "")
+                     .replace(/<[^>]+>/g, " ")
+                     .replace(/\s{2,}/g, " ")
+                     .slice(0, 8000); // cap for prompt
+
+    // ── Extract structured fields ──────────────────────────────────────────
+    const found: Record<string, string | string[]> = {};
+
+    // Company name — og:site_name > title tag > h1
+    const ogSite = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i);
+    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const h1Tag = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    const rawName = ogSite?.[1] || titleTag?.[1]?.split(/[|\-–]/)[0]?.trim() || h1Tag?.[1]?.trim();
+    if (rawName) found.companyName = rawName.trim();
+
+    // Phone — grab all phone-like patterns
+    const phones = text.match(/\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g) ?? [];
+    if (phones.length) found.phone = phones[0];
+
+    // Trade type — keyword match
+    const TRADES: Record<string, string[]> = {
+      HVAC: ["hvac", "heating", "cooling", "air conditioning", "furnace", "ac repair"],
+      Plumbing: ["plumbing", "plumber", "drain", "pipe", "water heater"],
+      Electrical: ["electrical", "electrician", "wiring", "panel"],
+      Roofing: ["roofing", "roofer", "roof repair", "shingles"],
+      Landscaping: ["landscaping", "lawn", "sprinkler", "irrigation"],
+      "Pest Control": ["pest control", "exterminator", "termite"],
+      "Pool Service": ["pool service", "pool cleaning", "pool repair"],
+      Painting: ["painting", "painter", "interior paint", "exterior paint"],
+      Cleaning: ["cleaning", "maid", "housekeeping", "janitorial"],
+      "General Contracting": ["contractor", "remodeling", "renovation", "construction"],
+    };
+    const lowerText = text.toLowerCase();
+    const matchedTrades: string[] = [];
+    for (const [trade, keywords] of Object.entries(TRADES)) {
+      if (keywords.some(kw => lowerText.includes(kw))) matchedTrades.push(trade);
+    }
+    if (matchedTrades.length) found.serviceTypes = matchedTrades.slice(0, 3);
+
+    // Services list — look for <li> items near "service" headings
+    const serviceSection = html.match(/service[^<]*<\/h[1-4][^>]*>([\s\S]{0,2000})/i)?.[1] ?? "";
+    const liItems = [...serviceSection.matchAll(/<li[^>]*>([^<]{5,80})<\/li>/gi)]
+      .map(m => m[1].replace(/<[^>]+>/g, "").trim())
+      .filter(Boolean)
+      .slice(0, 10);
+    if (liItems.length) found.services = liItems;
+
+    // Pricing — look for $ amounts or "pricing" / "rates" sections
+    const priceMatches = text.match(/\$[\d,]+(?:\.\d{2})?(?:\s*[-–]\s*\$[\d,]+(?:\.\d{2})?)?/g) ?? [];
+    if (priceMatches.length) found.pricing = priceMatches.slice(0, 5).join(", ");
+
+    // FAQs — look for question-like sentences
+    const faqMatches = text.match(/[A-Z][^.?!]{20,120}\?/g) ?? [];
+    if (faqMatches.length) found.faqs = faqMatches.slice(0, 6);
+
+    // Business hours
+    const hoursMatch = text.match(/(?:hours|open)[^.]{0,80}(?:mon|tue|wed|thu|fri|sat|sun|am|pm)[^.]{0,60}/i);
+    if (hoursMatch) found.hours = hoursMatch[0].trim();
+
+    // City/state from address patterns
+    const addrMatch = text.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)?),\s*([A-Z]{2})\s+\d{5}/);
+    if (addrMatch) {
+      found.city = addrMatch[1];
+      found.state = addrMatch[2];
+    }
+
+    res.json({ ok: true, found, rawText: text.slice(0, 3000) });
+  }));
+
+  // Mark onboarding complete + provision Telnyx inbound assistant
   app.post("/api/tenant/onboarding/complete", isAuthenticated, asyncHandler(async (req, res) => {
     const { tenants } = await import("@shared/models/auth");
     const tenantId = getTenantId(req);
-    await db
-      .update(tenants)
-      .set({ onboardingCompleted: true, bobEnabled: true, updatedAt: new Date() } as any)
-      .where(eq(tenants.id, tenantId));
-    res.json({ ok: true });
+
+    // Collect all the enrichment data passed from the frontend
+    const {
+      websiteUrl,
+      companyName: bodyCompanyName,
+      phone: bodyPhone,
+      serviceTypes,
+      services,
+      pricing,
+      faqs,
+      hours,
+      city,
+      state,
+      aiGreeting,
+      aiName,
+    } = req.body as Record<string, any>;
+
+    // Fetch current tenant to merge data
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+    if (!tenant) throw new NotFoundError("Tenant");
+
+    const finalCompany = bodyCompanyName || tenant.companyName || "our company";
+    const finalPhone   = bodyPhone || tenant.phone || "";
+    const finalCity    = city || (tenant.addressCity ?? "");
+    const finalState   = state || (tenant.addressState ?? "");
+    const botName      = aiName || "Alex";
+
+    // ── Build personalized inbound call prompt ─────────────────────────────
+    const serviceList  = Array.isArray(services)     ? services.join(", ")     :
+                         Array.isArray(serviceTypes)  ? serviceTypes.join(", ") : "home services";
+    const pricingNote  = pricing ? `\n\nPRICING CONTEXT:\n${pricing}` : "";
+    const faqBlock     = Array.isArray(faqs) && faqs.length
+      ? `\n\nFREQUENTLY ASKED QUESTIONS:\n${faqs.map((q: string, i: number) => `${i+1}. ${q}`).join("\n")}`
+      : "";
+    const hoursNote    = hours ? `\n\nBUSINESS HOURS: ${hours}` : "";
+    const locationNote = finalCity ? `\n\nSERVICE AREA: ${finalCity}${finalState ? `, ${finalState}` : ""}` : "";
+
+    const systemPrompt = `You are ${botName}, the AI receptionist for ${finalCompany}. You answer inbound calls from customers who need ${serviceList}.
+
+YOUR JOB:
+1. Greet the caller warmly and ask how you can help.
+2. Understand their issue — ask clarifying questions one at a time.
+3. If they need service, collect: their name, address, best callback number, and a description of the issue.
+4. If they ask about pricing, give them the best information you have — be honest if you need to confirm with the team.
+5. Offer to schedule a service call or have someone call them back.
+6. Always end positively — confirm what happens next.
+
+COMPANY INFO:
+Company: ${finalCompany}${finalPhone ? `\nPhone: ${finalPhone}` : ""}${locationNote}${hoursNote}
+
+SERVICES OFFERED: ${serviceList}${pricingNote}${faqBlock}
+
+RULES:
+- Never make up prices you don't know — say "let me have someone confirm that for you."
+- If it's an emergency (no heat, burst pipe, no power), prioritize and offer same-day or emergency service.
+- Keep responses short — this is a phone call, not a chat.
+- If you can't help, always offer to take a message and have someone call back.
+- Never say you're AI unless directly asked. If asked, say "I'm ${botName}, the virtual assistant for ${finalCompany}."
+
+TONE: Professional, warm, and efficient. Match the caller's urgency.`;
+
+    // ── Provision Telnyx AI Assistant ──────────────────────────────────────
+    const TELNYX_API_KEY = process.env.TELNYX_API_KEY || "KEY019D4888EF9B3207CAA11BE5105E2EE8_SETj4jrBqqJo8hd2kH1ezG";
+    let telnyxAssistantId: string | null = null;
+
+    try {
+      const createRes = await axios.post(
+        "https://api.telnyx.com/v2/ai/assistants",
+        {
+          name: `${finalCompany} — Inbound Receptionist`,
+          system_prompt: systemPrompt,
+          voice: "Telnyx.Savannah",  // warm female voice
+          language: "en",
+          greeting: aiGreeting || `Thanks for calling ${finalCompany}, this is ${botName}. How can I help you today?`,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${TELNYX_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 15000,
+        }
+      );
+      telnyxAssistantId = createRes.data?.data?.id ?? createRes.data?.id ?? null;
+      console.log(`[Onboarding] Telnyx assistant provisioned: ${telnyxAssistantId} for tenant ${tenantId}`);
+    } catch (err: any) {
+      const detail = err?.response?.data?.errors?.[0]?.detail || err?.message || "unknown";
+      console.error(`[Onboarding] Telnyx provision failed for tenant ${tenantId}:`, detail);
+      // Non-fatal — we still complete onboarding, just log the failure
+    }
+
+    // ── Save everything to tenant ──────────────────────────────────────────
+    const updatePayload: Record<string, any> = {
+      onboardingCompleted: true,
+      bobEnabled: true,
+      updatedAt: new Date(),
+    };
+    if (websiteUrl)        updatePayload.websiteUrl = websiteUrl;
+    if (telnyxAssistantId) updatePayload.telnyxAssistantId = telnyxAssistantId;
+    if (bodyPhone && !tenant.phone) updatePayload.phone = bodyPhone;
+    if (finalCity && !tenant.addressCity)   updatePayload.addressCity = finalCity;
+    if (finalState && !tenant.addressState) updatePayload.addressState = finalState;
+
+    await db.update(tenants).set(updatePayload).where(eq(tenants.id, tenantId));
+
+    res.json({
+      ok: true,
+      telnyxAssistantId,
+      assistantProvisioned: !!telnyxAssistantId,
+    });
   }));
 
   // Onboarding status check

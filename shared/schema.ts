@@ -466,6 +466,22 @@ export const bobKnowledgeChunksRelations = relations(bobKnowledgeChunks, ({ one 
   }),
 }));
 
+// ─── ONBOARDING TOKENS ───────────────────────────────────────────────────────
+// Each token links a Stripe checkout to a unique onboarding URL sent by email
+export const onboardingTokens = pgTable("onboarding_tokens", {
+  id: serial("id").primaryKey(),
+  token: text("token").unique().notNull(),          // UUID sent in email link
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  used: boolean("used").default(false),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_onboarding_tokens_token").on(table.token),
+  index("idx_onboarding_tokens_tenant").on(table.tenantId),
+]);
+
+export type OnboardingToken = typeof onboardingTokens.$inferSelect;
+
 // Types
 export type BobConversation = typeof bobConversations.$inferSelect;
 export type BobMessage = typeof bobMessages.$inferSelect;

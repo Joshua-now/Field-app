@@ -27,6 +27,8 @@ export const tenants = pgTable("tenants", {
   crmApiKey: text("crm_api_key"),                     // API key / PIT token for their CRM
   // ── Onboarding ───────────────────────────────────────────────────────────
   onboardingCompleted: boolean("onboarding_completed").default(false),
+  websiteUrl: text("website_url"),
+  telnyxAssistantId: text("telnyx_assistant_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
