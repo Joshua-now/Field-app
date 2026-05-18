@@ -353,7 +353,7 @@ RULES:
 
 TONE: Professional, warm, and efficient. Match the caller's urgency.`;
 
-    const TELNYX_API_KEY = process.env.TELNYX_API_KEY || "KEY019D4888EF9B3207CAA11BE5105E2EE8_SETj4jrBqqJo8hd2kH1ezG";
+    const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
     let telnyxAssistantId: string | null = null;
 
     try {
@@ -1359,7 +1359,7 @@ RULES:
 TONE: Professional, warm, and efficient. Match the caller's urgency.`;
 
     // ── Provision Telnyx AI Assistant ──────────────────────────────────────
-    const TELNYX_API_KEY = process.env.TELNYX_API_KEY || "KEY019D4888EF9B3207CAA11BE5105E2EE8_SETj4jrBqqJo8hd2kH1ezG";
+    const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
     let telnyxAssistantId: string | null = null;
 
     try {
